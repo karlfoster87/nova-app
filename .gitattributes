@@ -1,0 +1,5 @@
+# Text files are stored with LF in the repository, whatever each machine's core.autocrlf.
+* text=auto
+# Shell scripts run in the LXC, so they keep LF on disk too, even in a Windows checkout:
+# a CR at the end of a line breaks bash ($'\r': command not found).
+*.sh text eol=lf

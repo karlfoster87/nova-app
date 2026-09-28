@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#05080F">
+  <title>Nova</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap">
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="appbar">
+    <button class="icon-btn menu-btn" type="button" aria-label="Show the sidebar">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2.5 27.7 9.3v13.4L16 29.5 4.3 22.7V9.3Z"/><circle cx="16" cy="16" r="6.5"/><circle cx="16" cy="16" r="2.2"/></svg>
+      <span class="brand-name">Nova</span>
+    </div>
+    <span class="brand-tag">Agent console <span aria-hidden="true">//</span> <span id="brandProfile"></span></span>
+    <div class="usage" id="usage" aria-label="Plan usage"></div>
+    <div class="sys">
+      <span class="link-state" id="linkState" data-state="connecting" role="status"><i aria-hidden="true"></i><span>Connecting</span></span>
+      <time class="clock" id="clock"></time>
+      <span class="version" id="version"></span>
+    </div>
+    <button class="icon-btn presence-btn" id="presenceBtn" type="button" aria-label="Show the avatar and logs" aria-controls="presence" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/></svg>
+    </button>
+    <span class="slashes" aria-hidden="true"><i></i><i></i><i></i></span>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar frame" id="sidebar">
+      <div class="who">
+        <span class="who-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3.5"/><path d="M5.5 19a7.5 7.5 0 0 1 13 0"/></svg></span>
+        <button class="who-profile" id="profileBtn" type="button" aria-haspopup="dialog" title="Switch profile">
+          <span id="profileName">…</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+        </button>
+        <button class="icon-btn" id="settingsBtn" type="button" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+        </button>
+      </div>
+      <div class="view-tabs" id="viewTabs" role="tablist" aria-label="Views" hidden></div>
+      <div class="side-pane" data-side="chats">
+        <label class="search-box">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <input class="chat-search" id="chatSearch" type="search" placeholder="Search chats" aria-label="Search chats by title" autocomplete="off" maxlength="120">
+        </label>
+        <nav class="chat-list" id="chatList" aria-label="Chats"></nav>
+        <nav class="recent-list" id="recentList" aria-label="Recent chats" hidden></nav>
+        <div class="side-foot">
+          <button class="foot-btn" id="newCategoryBtn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New category</button>
+          <button class="foot-btn" id="newChatBtn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main frame" id="main">
+      <div class="view view-chats" data-view="chats">
+      <header class="topbar chat-head">
+        <svg class="head-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 20 12Z"/></svg>
+        <div class="chat-heading">
+          <h1 class="chat-title" id="chatTitle">New chat</h1>
+          <span class="chat-where" id="chatWhere"></span>
+        </div>
+        <div class="pickers">
+          <label class="picker"><span class="sr">Model</span><select id="modelSelect"></select></label>
+          <label class="picker" id="effortWrap"><span class="sr">Effort</span><select id="effortSelect"></select></label>
+          <label class="picker"><span class="sr">Permissions</span><select id="modeSelect">
+            <option value="default" title="Claude asks before running commands or changing files">Ask first</option>
+            <option value="acceptEdits" title="File edits go ahead without asking; commands still ask">Auto-accept edits</option>
+            <option value="auto" title="A safety classifier approves or blocks each action instead of asking you">Auto mode</option>
+            <option value="plan" title="Claude reads and plans but doesn't change anything">Plan only</option>
+          </select></label>
+        </div>
+        <span class="chat-state" id="chatState" data-state="idle"><i aria-hidden="true"></i><span>Ready</span></span>
+      </header>
+
+      <section class="transcript" id="transcript" aria-live="polite"></section>
+
+      <form class="composer" id="composer">
+        <div class="composer-box">
+          <ul class="file-chips attach-list" id="attachList" aria-label="Attached files" hidden></ul>
+          <textarea id="input" rows="1" placeholder="Message Claude" aria-label="Message"></textarea>
+          <div class="composer-actions">
+            <button type="button" class="icon-btn attach-btn" id="attachBtn" title="Add files" aria-label="Add files">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 11.5-8.4 8.4a5.4 5.4 0 0 1-7.6-7.6l8.4-8.4a3.6 3.6 0 0 1 5.1 5.1l-8.4 8.4a1.8 1.8 0 0 1-2.5-2.5l7.7-7.7"/></svg>
+            </button>
+            <input type="file" id="fileInput" multiple hidden>
+            <span class="hint" id="hint">Enter to send, Shift+Enter for a new line. Drop files to attach.</span>
+            <button type="button" class="stop-btn" id="stopBtn" hidden>Stop</button>
+            <button type="submit" class="send-btn icon-send" id="sendBtn" aria-label="Send">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12 20 4.5 16 20l-4-6.5ZM12 13.5 20 4.5"/></svg>
+            </button>
+          </div>
+        </div>
+      </form>
+      </div>
+    </main>
+
+    <aside class="presence frame" id="presence" data-state="idle" aria-label="Claude status">
+      <div class="ptabs" role="tablist" aria-label="Status panel">
+        <button type="button" role="tab" data-ptab="avatar" aria-selected="true">Avatar</button>
+        <button type="button" role="tab" data-ptab="logs" aria-selected="false" tabindex="-1">Logs<span class="tab-badge" id="logBadge" hidden></span></button>
+      </div>
+
+      <section class="ppane ppane-avatar" data-ppane="avatar" role="tabpanel" aria-label="Avatar">
+        <div class="avatar-frame">
+          <label class="avatar-pick"><span>Avatar</span>
+            <select id="avatarSelect" aria-label="Avatar style"></select></label>
+          <div class="avatar-stage" id="avatarStage" aria-hidden="true"></div>
+        </div>
+        <div class="main-status">
+          <p class="presence-line"><i aria-hidden="true"></i><span id="presenceLabel">Ready</span></p>
+          <span class="wave main-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        </div>
+        <div class="agents-head"><h2>Sub-agents</h2><span id="agentCount">None running</span></div>
+        <ul class="agents" id="agents" aria-label="Sub-agents"></ul>
+        <div class="mini-log" aria-label="Latest log entries">
+          <ol id="miniLog"></ol>
+          <p class="log-prompt" aria-hidden="true">&gt;<span class="caret"></span></p>
+        </div>
+      </section>
+
+      <section class="ppane ppane-logs" data-ppane="logs" role="tabpanel" aria-label="Logs" hidden>
+        <div class="log-tools">
+          <div class="log-filters" id="logFilters" role="group" aria-label="Show entries"></div>
+          <button type="button" class="text-btn" id="logClear">Clear log</button>
+        </div>
+        <ol class="log-list" id="logList"></ol>
+      </section>
+    </aside>
+  </div>
+
+  <dialog id="categoryDialog" class="settings small-dialog" aria-labelledby="categoryTitle">
+    <form id="categoryForm" class="stack">
+      <h2 id="categoryTitle">New category</h2>
+      <label>Name <input name="name" type="text" maxlength="60" autocomplete="off" required></label>
+      <p class="form-status error" role="alert"></p>
+      <div class="row">
+        <span class="spacer"></span>
+        <button type="button" class="text-btn" data-close>Cancel</button>
+        <button type="submit" class="send-btn">Create category</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="restarting" class="settings restarting" aria-labelledby="restartTitle">
+    <div class="field small" aria-hidden="true"><span></span><span></span><span></span></div>
+    <h2 id="restartTitle">Restarting Nova</h2>
+    <p id="restartText" role="status"></p>
+    <div class="row" id="restartActions" hidden>
+      <button type="button" class="send-btn" id="restartReload">Reload now</button>
+    </div>
+  </dialog>
+
+  <dialog id="switcher" class="settings switcher" aria-labelledby="switcherTitle">
+    <form id="switchForm">
+      <h2 id="switcherTitle">Switch profile</h2>
+      <p class="muted">Signed in as <strong id="switchCurrent"></strong></p>
+      <!-- Step 1: pick a profile. Step 2: its password, or its PIN in four boxes. -->
+      <ul id="switchList" class="profile-circles" aria-label="Profiles"></ul>
+      <div id="switchAuth" class="switch-auth" hidden>
+        <div class="switch-target"><span class="profile-circle" id="switchCircle" aria-hidden="true"></span><span id="switchName"></span></div>
+        <label id="switchPassword">Password <input id="switchSecret" type="password" autocomplete="current-password"></label>
+        <div id="switchPin" class="pin-boxes" role="group" aria-label="PIN">
+          <input type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="PIN digit 1 of 4">
+          <input type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="PIN digit 2 of 4">
+          <input type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="PIN digit 3 of 4">
+          <input type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="PIN digit 4 of 4">
+        </div>
+      </div>
+      <p class="form-status error" id="switchError" role="alert"></p>
+      <div class="settings-actions" id="switchPickActions">
+        <button type="button" id="switchSignOut" class="text-btn">Sign out</button>
+        <span class="spacer"></span>
+        <button type="button" class="text-btn" data-close>Close</button>
+      </div>
+      <div class="settings-actions" id="switchAuthActions" hidden>
+        <button type="button" id="switchBack" class="text-btn">Back</button>
+        <span class="spacer"></span>
+        <button type="submit" id="switchGo" class="send-btn">Switch</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settings" class="settings" aria-labelledby="settingsTitle">
+    <div class="settings-head">
+      <h2 id="settingsTitle">Settings</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Settings sections">
+      <button type="button" role="tab" data-tab="profile" aria-selected="true">Your profile</button>
+      <button type="button" role="tab" data-tab="permissions">Permissions</button>
+      <button type="button" role="tab" data-tab="profiles" data-admin>Profiles</button>
+      <button type="button" role="tab" data-tab="claude" data-admin>Claude</button>
+      <button type="button" role="tab" data-tab="updates" data-admin>Updates</button>
+    </div>
+
+    <section class="panel" data-panel="profile" role="tabpanel">
+      <p class="muted" id="profileSummary"></p>
+      <form id="pictureForm" class="stack">
+        <h3>Picture</h3>
+        <p class="muted">Shows in the profile switcher and at the top of the sidebar, in place of your initial. It's cropped to a square.</p>
+        <div id="pictureBox"></div>
+        <p class="form-status" role="status"></p>
+      </form>
+      <form id="nameForm" class="stack">
+        <label>Profile name <input name="name" autocomplete="off" autocapitalize="none" required pattern="[A-Za-z0-9\-]{2,32}"></label>
+        <p class="muted">Letters, digits and hyphens. Capitals are kept, but names are matched ignoring case. Renaming also renames your notes folder and reloads open tabs.</p>
+        <div class="row"><button type="submit" class="send-btn">Save name</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
+      <form id="themeForm" class="stack">
+        <h3>Appearance</h3>
+        <label>Theme <select name="theme">
+          <option value="dark">Dark</option><option value="light">Light</option><option value="system">Match the system</option>
+        </select></label>
+        <p class="muted">Saved in this browser only, so a phone and a desktop can differ.</p>
+        <p class="form-status" role="status"></p>
+      </form>
+      <form id="prefsForm" class="stack">
+        <h3>Tasks</h3>
+        <label class="check"><input type="checkbox" name="hideWeekends"> Hide weekends on the task board</label>
+        <p class="muted">Saturday and Sunday then show only when a task is on them, and the three days ahead are weekdays.</p>
+        <p class="form-status" role="status"></p>
+      </form>
+      <form id="passwordForm" class="stack">
+        <h3>Change password</h3>
+        <label>Current password <input name="currentPassword" type="password" autocomplete="current-password" required></label>
+        <label>New password <input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
+        <label>Repeat new password <input name="confirm" type="password" autocomplete="new-password" minlength="12" required></label>
+        <div class="row"><button type="submit" class="send-btn">Change password</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
+      <form id="pinForm" class="stack">
+        <h3>Quick-switch PIN</h3>
+        <p class="muted" id="pinHelp"></p>
+        <label>Current password <input name="currentPassword" type="password" autocomplete="current-password" required></label>
+        <label>New PIN <input name="pin" type="password" inputmode="numeric" autocomplete="off" pattern="\d{4}" maxlength="4" placeholder="4 digits"></label>
+        <div class="row">
+          <button type="submit" class="send-btn">Set PIN</button>
+          <button type="button" class="text-btn" id="removePin">Remove PIN</button>
+        </div>
+        <p class="form-status" role="status"></p>
+      </form>
+    </section>
+
+    <section class="panel" data-panel="permissions" role="tabpanel" hidden>
+      <form id="folderForm" class="stack">
+        <h3>Extra folders</h3>
+        <p class="muted">Folders outside the brain that Claude may use in your chats, such as a project folder, a network share or a mount point. They apply to your profile only. Open chats pick up a change once they finish what they're doing.</p>
+        <div id="folderRows" class="profile-rows"></div>
+        <label>Folder path <input name="path" type="text" autocomplete="off" spellcheck="false" required></label>
+        <div class="row"><button type="submit" class="send-btn">Add folder</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
+      <div id="approvalBox" class="stack">
+        <h3>Always allowed</h3>
+        <p class="muted">Rules saved with Always allow on a permission prompt. Chats in your profile run matching actions without asking.</p>
+        <div id="approvalRows" class="profile-rows"></div>
+        <p class="form-status" role="status"></p>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="profiles" role="tabpanel" hidden>
+      <div id="profileRows" class="profile-rows"></div>
+      <form id="addProfileForm" class="stack add-profile">
+        <h3>Add a profile</h3>
+        <div class="grid-2">
+          <label>Name <input name="name" autocomplete="off" autocapitalize="none" required pattern="[A-Za-z0-9\-]{2,32}"></label>
+          <label>Role <select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label>
+          <label>Password <input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
+          <label>PIN <span class="muted">(optional)</span> <input name="pin" type="password" inputmode="numeric" autocomplete="off" pattern="\d{4}" maxlength="4" placeholder="4 digits"></label>
+        </div>
+        <div class="row"><button type="submit" class="send-btn">Add profile</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
+    </section>
+
+    <section class="panel" data-panel="claude" role="tabpanel" hidden>
+      <form id="signinForm" class="stack">
+        <h3>Claude sign-in</h3>
+        <p class="account" id="accountLine"></p>
+        <p class="muted">Nova keeps its own sign-in, separate from any Claude Code on this machine, and renews it while it runs. A Claude subscription shows plan usage in the header. An Anthropic Console account bills the API instead and has no usage bars.</p>
+        <div class="row" id="signinStart">
+          <button type="button" class="send-btn" data-method="claudeai">Sign in with Claude</button>
+          <button type="button" class="text-btn" data-method="console">Sign in with Anthropic Console</button>
+          <button type="button" class="text-btn" id="signOut" hidden>Sign out</button>
+        </div>
+        <div class="stack" id="signinSteps" hidden>
+          <p>1. Open the <a id="signinLink" target="_blank" rel="noopener noreferrer">sign-in page</a> in any browser and approve Nova.</p>
+          <p>2. Copy the code the page shows and paste it here.</p>
+          <label>Code <input name="code" type="password" autocomplete="off" spellcheck="false"></label>
+          <div class="row">
+            <button type="submit" class="send-btn">Finish signing in</button>
+            <button type="button" class="text-btn" id="signinCancel">Cancel</button>
+          </div>
+        </div>
+        <p class="form-status" role="status"></p>
+      </form>
+
+      <form id="brainForm" class="stack">
+        <h3>Brain folder</h3>
+        <p class="muted">The folder Claude works from. Its <code>CLAUDE.md</code> and <code>.claude</code> settings load into every chat, and profile notes live in its <code>profiles</code> folder.</p>
+        <label>Folder path <input name="brainDir" type="text" autocomplete="off" spellcheck="false" required></label>
+        <p class="muted">Saving restarts Nova, which closes open chats. Chats and categories belong to the brain folder they were made in: after the switch you'll see the new folder's, and switching back brings these back.</p>
+        <div class="row"><button type="submit" class="send-btn">Save and restart</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
+
+      <form id="settingsForm" class="stack">
+        <fieldset>
+          <legend>Models shown in the picker</legend>
+          <div id="modelToggles" class="toggles"></div>
+        </fieldset>
+
+        <fieldset class="grid-2">
+          <legend>Defaults</legend>
+          <label>Default effort
+            <select name="defaultEffort">
+              <option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option>
+            </select></label>
+          <label>Close idle chats after (minutes) <input name="idleMinutes" type="number" min="5" max="1440" step="1"></label>
+          <label class="check full"><input type="checkbox" name="showThinking"> Show Claude's thinking</label>
+          <p class="muted full">A summary of Claude's reasoning streams into each reply's Thinking block. It costs nothing extra, since the thinking happens either way. Open chats switch over once they finish what they're doing.</p>
+        </fieldset>
+
+        <div class="row"><button type="submit" class="send-btn">Save settings</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
+    </section>
+
+    <section class="panel" data-panel="updates" role="tabpanel" hidden>
+      <form id="sdkForm" class="stack">
+        <h3>Claude Agent SDK</h3>
+        <p class="muted">Nova talks to Claude through this package. Updating installs the new version into a staging folder and tests it first. Nova restarts only if the test passes, and open chats close when it does. Nova never updates by itself.</p>
+        <dl class="facts">
+          <dt>Installed</dt><dd id="sdkInstalled"></dd>
+          <dt>Latest on npm</dt><dd id="sdkLatest"></dd>
+        </dl>
+        <p class="muted" id="sdkLast"></p>
+        <div class="row">
+          <button type="submit" class="send-btn" id="sdkUpdate" hidden>Update and restart</button>
+          <button type="button" class="text-btn" id="sdkCheck">Check now</button>
+        </div>
+        <p class="form-status" role="status"></p>
+      </form>
+
+      <form id="sdkCheckForm" class="stack">
+        <label>Check for a new version every (hours) <input name="checkHours" type="number" min="0" max="720" step="1"></label>
+        <p class="muted">Use 0 to stop checking. Checking only asks npm for the version number; installing always needs an admin.</p>
+        <div class="row"><button type="submit" class="send-btn">Save</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
+    </section>
+  </dialog>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "nova",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Self-hosted chat console for the Claude Agent SDK, sharing one markdown brain across profiles.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server/launcher.js",
+    "add-profile": "node --disable-warning=ExperimentalWarning scripts/add-profile.js",
+    "claude-login": "node scripts/claude-login.js",
+    "check": "node scripts/check.js",
+    "smoke": "node --disable-warning=ExperimentalWarning scripts/ws-smoke.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.283",
+    "dompurify": "^3.2.0",
+    "marked": "^15.0.0",
+    "ws": "^8.18.0"
+  }
+}
