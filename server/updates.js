@@ -20,6 +20,9 @@ export const RESULT = path.join(DATA_DIR, 'sdk-update-result.json');   // writte
 const state = { latest: null, checkedAt: null, checkError: null, step: null, error: null };
 let checkTimer = null;
 
+// One update at a time: this and Nova's own updates (appupdate.js) share it.
+export const updateLock = { by: null }; // null | 'sdk' | 'app'
+
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
 
 export function installedVersion(root = APP_ROOT) {
@@ -27,7 +30,7 @@ export function installedVersion(root = APP_ROOT) {
 }
 
 // Numeric compare of x.y.z; a pre-release sorts below its release.
-function newer(a, b) {
+export function newer(a, b) {
   const [pa, pb] = [a, b].map((v) => v.split(/[.-]/));
   for (let i = 0; i < 3; i++) if (+pa[i] !== +pb[i]) return +pa[i] > +pb[i];
   return pa.length < pb.length;
@@ -72,7 +75,7 @@ export function updateStatus() {
   };
 }
 
-function busyError(when) {
+export function busyError(when) {
   const n = busyRunners().length;
   if (!n) return null;
   return new UserError(`${n === 1 ? 'A chat is' : `${n} chats are`} still working or waiting for an answer${when}. ` +
@@ -82,7 +85,7 @@ function busyError(when) {
 // Stages and tests `version`, then calls onReady() to restart into the launcher's install.
 // Returns at once; progress is read through updateStatus().
 export function startUpdate(profile, version, onReady) {
-  if (state.step) throw new UserError('An update is already in progress.', 409);
+  if (state.step || updateLock.by) throw new UserError('An update is already in progress.', 409);
   if (!VERSION_RE.test(String(version || ''))) throw new UserError('Choose a version to install.');
   const from = installedVersion();
   if (version === from) throw new UserError(`Version ${version} is already installed.`, 409);
@@ -91,6 +94,7 @@ export function startUpdate(profile, version, onReady) {
 
   state.error = null;
   state.step = 'installing';
+  updateLock.by = 'sdk';
   console.log(`SDK update to ${version} started by ${profile}.`);
   (async () => {
     fs.rmSync(STAGING, { recursive: true, force: true });
@@ -115,6 +119,7 @@ export function startUpdate(profile, version, onReady) {
     fs.rmSync(STAGING, { recursive: true, force: true });
     state.error = err.message;
     state.step = null;
+    updateLock.by = null;
   });
 }
 

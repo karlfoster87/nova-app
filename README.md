@@ -25,7 +25,7 @@ Version 0.2. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-
 - Nova's sign-in is separate from any Claude Code you use yourself on the same machine, so the two can use different accounts
 - Plan usage bars (session and weekly) with reset times, for subscription sign-ins
 - Model list straight from the SDK, with hidden models and defaults set in Settings
-- Agent SDK updates from Settings: checked on a timer, installed only when an admin asks, and tested before Nova restarts, with automatic rollback
+- Updates to Nova itself (from this GitHub repository) and to the Agent SDK, from Settings: checked on a timer, installed only when an admin asks, and tested before Nova restarts, with automatic rollback. A copy running newer code than GitHub is never overwritten
 - The brain's own `CLAUDE.md` and `.claude/` rules, skills and agents load into every chat, as they do in Claude Code. User-level settings and cloud memory are never loaded
 
 **Profiles**
@@ -73,19 +73,21 @@ If Nova has to run before anyone signs in, run it as a service instead, with [NS
 
 1. **Create the container.** Use an unprivileged Debian 12 container. It doesn't need nesting. Memory is a ceiling rather than a reservation, so 4 GB is plenty.
 2. **Mount the brain.** Bind-mount the brain, and any shares Nova needs, from the Proxmox host into the container, read-only where you can. In an unprivileged container, the host files must be owned by UID 100000 plus the container UID of the `nova` user (`id nova` shows it once setup has run).
-3. **Copy Nova in,** for example to `/root/nova-src`. Leave out `node_modules` and `data`; the container installs its own packages.
-4. **Run the setup** as root inside the container:
+3. **Install Nova** as root inside the container. Nothing needs copying in first: the script downloads the latest Nova from GitHub itself.
    ```bash
-   bash /root/nova-src/scripts/setup-lxc.sh --brain /mnt/brain
+   apt-get update && apt-get install -y curl
+   curl -fsSL https://raw.githubusercontent.com/karlfoster87/nova-app/main/scripts/setup-lxc.sh | bash -s -- --brain /mnt/brain
    ```
-   It installs Node 24 (from NodeSource), git and rsync, and creates the user `nova` with no sudo and no login shell. It copies the app to `/opt/nova`, installs packages, and writes `/opt/nova/data/config.json` (remote mode, your brain folder). Then it installs and starts the systemd unit `nova`. Add `--port <n>` for a port other than 8484.
-5. **Create your admin profile:**
+   It installs Node 24 (from NodeSource), rsync and git (git for the brain viewer's commits). It creates the user `nova` with no sudo and no login shell, and puts the app in `/opt/nova`. It records which commit that is, so Nova can update itself from GitHub from then on. It installs packages and writes `/opt/nova/data/config.json` (remote mode, your brain folder), then installs and starts the systemd unit `nova`. Add `--port <n>` for a port other than 8484. Running the same command again repairs the install without touching `/opt/nova/data`.
+4. **Create your admin profile:**
    ```bash
    nova add-profile <name> --admin
    ```
-6. **Set up remote access.** Run `cloudflared` in the container (or a separate one) and route a hostname to `http://127.0.0.1:8484`. Put a Cloudflare Access application in front with a long session, around a month, so the installed PWA doesn't bounce to a login page. Access is the front door; Nova's own profile login is the second layer. WebSockets work through the tunnel with no extra settings.
-7. **Sign in to Claude.** Open Nova, sign in, and go to **Settings → Claude → Sign in with Claude**. Nothing needs to reach the container for this: you approve in your own browser and paste the code back.
-8. **Set the firewall** on the Proxmox host. Allow outbound to `anthropic.com`, `claude.com`, `claude.ai`, npm, `deb.nodesource.com`, the Debian mirrors, Cloudflare and your share hosts. Block the Proxmox host and the rest of the LAN.
+5. **Set up remote access.** Run `cloudflared` in the container (or a separate one) and route a hostname to `http://127.0.0.1:8484`. Put a Cloudflare Access application in front with a long session, around a month, so the installed PWA doesn't bounce to a login page. Access is the front door; Nova's own profile login is the second layer. WebSockets work through the tunnel with no extra settings.
+6. **Sign in to Claude.** Open Nova, sign in, and go to **Settings → Claude → Sign in with Claude**. Nothing needs to reach the container for this: you approve in your own browser and paste the code back.
+7. **Set the firewall** on the Proxmox host. Allow outbound to `anthropic.com`, `claude.com`, `claude.ai`, GitHub (`github.com`, `api.github.com`, `codeload.github.com`, `raw.githubusercontent.com`, for installing and updates), npm, `deb.nodesource.com`, the Debian mirrors, Cloudflare and your share hosts. Block the Proxmox host and the rest of the LAN.
+
+From then on, Nova updates itself: **Settings → Updates** shows each new commit you push to `main`, and installs it when you choose **Update and restart**.
 
 The `nova` command runs host tasks as the right user:
 
@@ -98,9 +100,15 @@ The `nova` command runs host tasks as the right user:
 
 ## Updating
 
-- **Windows:** stop Nova (`scripts\install-windows.ps1 -Stop`), update the code (`git pull`), run `npm install`, then run `scripts\install-windows.ps1` again.
-- **LXC:** copy the newer code into the container and run `setup-lxc.sh` again. It replaces the code but never touches `/opt/nova/data`, and it keeps an Agent SDK you've updated from Settings rather than downgrade it.
-- **Agent SDK:** an admin can update it from **Settings → Updates** on either install.
+**From Settings (both installs).** **Settings → Updates** checks GitHub (`main`) and npm on a timer (every 24 hours by default), and shows **Update and restart** when there's something newer. Only an admin can install. An update is downloaded into a staging folder and tested there with its own syntax check and smoke test. Nova then restarts to install it, and goes back to the previous version by itself if installing fails or the new version stops within a minute of starting.
+
+Nova never offers to replace code that's newer than GitHub's. A copy with uncommitted changes, commits that aren't pushed yet, or a history that has moved on from GitHub's says so and stays as it is. A copy that doesn't know its commit (copied rather than cloned) is only offered a higher version number. A git checkout is updated with a fast-forward merge, and any other copy has its code swapped, with a backup kept in `data/app-backup`. Your data folder is never touched either way.
+
+**By hand.**
+- **Windows:** stop Nova (`scripts\install-windows.ps1 -Stop`), run `git pull` and `npm install`, then run `scripts\install-windows.ps1` again.
+- **LXC:** run the install command from step 3 again. It downloads the latest `main` and replaces the code, but never touches `/opt/nova/data`, and keeps an Agent SDK you've updated from Settings rather than downgrade it.
+
+The Agent SDK updates the same way, from its own section in **Settings → Updates**.
 
 ## Configuration
 
@@ -127,6 +135,8 @@ Keys you're most likely to change in `config.json` (any key you leave out keeps 
 | `chats.idleMinutes` | `30` | Idle chat processes close after this long |
 | `views.userDefaults` | brain read, tasks and notes edit | Access for user profiles an admin hasn't set |
 | `security.sessionDays` | `30` | Session length |
+| `updates.checkHours` | `24` | How often to check GitHub and npm for updates; `0` stops checking |
+| `updates.appRepo` | `karlfoster87/nova-app` | The GitHub repository Nova updates itself from (`owner/name`, public); `""` turns it off. `updates.appBranch` is the branch, `main` by default |
 
 Each profile's notes live in `<brain>/profiles/<name>/` and are added to that profile's chats.
 

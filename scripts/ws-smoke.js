@@ -537,6 +537,17 @@ async function tasksAndNotes(a, b, c) {
   await claudeSignin(a, b);
   await pins(a);
   await pictures(a, b);
+
+  // Nova's own updates. Checks are off here (checkHours 0), so nothing asks GitHub.
+  const app = await http('GET', '/api/settings/app', { cookie: a });
+  // Before any check the relation is unknown, unless this checkout has uncommitted changes,
+  // which show at once (they rule out updating whatever GitHub has).
+  check(app.status === 200 && app.data?.local?.version && ['git', 'files'].includes(app.data.local.mode) && app.data.checkedAt === null
+    && (app.data.local.changes ? app.data.relation === 'modified' : app.data.relation === null), 'an admin sees which version of Nova is running');
+  check((await http('GET', '/api/settings/app', { cookie: b })).status === 403 && (await http('POST', '/api/settings/app/check', { cookie: b })).status === 403,
+    'a user can\'t see or check Nova\'s updates');
+  check((await http('POST', '/api/settings/app/update', { cookie: a, body: { commit: 'f'.repeat(40) } })).status === 409,
+    'nothing is installed without a check that found an update');
 }
 
 // Profile pictures: self or admin to change, any session to see, sniffed type.

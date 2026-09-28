@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Sets up or updates Nova in a Debian or Ubuntu LXC. Run as root inside
-# the container, from a copy of the Nova folder (node_modules and data aren't needed):
+# Installs or repairs Nova in a Debian or Ubuntu LXC. Run as root inside the container; it
+# downloads the latest Nova from GitHub itself, so the container needs no git and no copy:
 #
-#   bash scripts/setup-lxc.sh [--brain /mnt/brain] [--port 8484]
+#   curl -fsSL https://raw.githubusercontent.com/karlfoster87/nova-app/main/scripts/setup-lxc.sh | bash -s -- --brain /mnt/brain
 #
-# It installs Node 24 (NodeSource) unless Node 22.13+ is already there, plus git and rsync;
-# creates the system user "nova" (no sudo, no login shell); copies the app to /opt/nova;
-# installs packages as nova; writes /opt/nova/data/config.json on first run (mode remote,
-# and --brain / --port if given); installs the systemd unit and a "nova" helper command;
-# then (re)starts Nova and waits for it to answer. Run it again with a newer copy to update:
-# code is replaced, while /opt/nova/data (config, database, sign-in, logs) is never touched.
+# It installs Node 24 (NodeSource) unless Node 22.13+ is already there, plus rsync and git (for
+# the brain viewer's commits); creates the system user "nova" (no sudo, no login shell); puts
+# the app in /opt/nova and records which commit it is, so Nova can update itself from GitHub
+# afterwards (Settings, Updates); installs packages as nova; writes /opt/nova/data/config.json
+# on first run (mode remote, and --brain / --port if given); installs the systemd unit and a
+# "nova" helper command; then (re)starts Nova and waits for it to answer. /opt/nova/data
+# (config, database, sign-in, logs) is never touched, so running it again is a safe repair.
 set -euo pipefail
 
 APP=/opt/nova
@@ -17,29 +18,59 @@ DATA=$APP/data
 HOME_DIR=/home/nova
 SERVICE=/etc/systemd/system/nova.service
 HELPER=/usr/local/bin/nova
-SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+REPO=karlfoster87/nova-app
+BRANCH=main
 BRAIN=''
 PORT=''
+FROM_GITHUB=''
+COMMIT=''
 
 step() { printf '\n== %s\n' "$*"; }
 fail() { printf 'setup-lxc: %s\n' "$*" >&2; exit 1; }
 as_nova() { runuser -u nova -- env HOME="$HOME_DIR" NOVA_DATA_DIR="$DATA" "$@"; }
+usage() {
+  cat <<'EOF'
+Usage (as root in the container):
+  curl -fsSL https://raw.githubusercontent.com/karlfoster87/nova-app/main/scripts/setup-lxc.sh | bash -s -- [options]
+  bash scripts/setup-lxc.sh [options]            from a Nova folder, installs that folder instead
+
+Options:
+  --brain <folder>        the brain's mount point (first setup only)
+  --port <number>         port, default 8484 (first setup only)
+  --repo <owner/name>     GitHub repository to install and update from, default karlfoster87/nova-app
+  --branch <name>         branch, default main
+  --from-github           download from GitHub even when run from a Nova folder
+EOF
+}
+
+# Run from a Nova folder, it installs that folder; piped from curl (or with --from-github),
+# it downloads the branch from GitHub.
+SCRIPT=${BASH_SOURCE[0]:-}
+SRC=''
+if [ -n "$SCRIPT" ] && [ -f "$SCRIPT" ] && [ -f "$(dirname "$SCRIPT")/../server/launcher.js" ]; then
+  SRC=$(cd "$(dirname "$SCRIPT")/.." && pwd)
+fi
 
 while [ $# -gt 0 ]; do
   case $1 in
     --brain) BRAIN=${2:-}; shift 2 || fail '--brain needs a folder.' ;;
     --port) PORT=${2:-}; shift 2 || fail '--port needs a number.' ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
-    *) fail "Unknown option $1. Use --brain <folder> and --port <number>." ;;
+    --repo) REPO=${2:-}; shift 2 || fail '--repo needs owner/name.' ;;
+    --branch) BRANCH=${2:-}; shift 2 || fail '--branch needs a name.' ;;
+    --from-github) FROM_GITHUB=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; fail "Unknown option $1." ;;
   esac
 done
+[ -n "$FROM_GITHUB" ] && SRC=''
 
 [ "$(id -u)" = 0 ] || fail 'Run this as root inside the container.'
 command -v apt-get >/dev/null || fail 'This script expects Debian or Ubuntu (apt-get).'
 command -v systemctl >/dev/null || fail 'This script expects systemd.'
-[ -f "$SRC/server/launcher.js" ] && [ -f "$SRC/package-lock.json" ] || fail "$SRC doesn't look like the Nova folder."
+[ -z "$SRC" ] || [ -f "$SRC/package-lock.json" ] || fail "$SRC doesn't look like the Nova folder."
+[[ $REPO =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail '--repo must look like owner/name.'
 [ -z "$PORT" ] || [[ $PORT =~ ^[0-9]+$ ]] || fail '--port must be a number.'
-[ -z "$BRAIN" ] || [ -d "$BRAIN" ] || fail "$BRAIN doesn't exist. Bind-mount the brain into the container first (README, Home server step 3), then run this again."
+[ -z "$BRAIN" ] || [ -d "$BRAIN" ] || fail "$BRAIN doesn't exist. Bind-mount the brain into the container first (README, Proxmox step 2), then run this again."
 
 step 'Node.js'
 node_ok() { command -v node >/dev/null && node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 13) ? 0 : 1)'; }
@@ -58,6 +89,24 @@ else
   echo "Installed Node $(node -v)."
 fi
 NODE=$(command -v node)
+
+step 'Nova code'
+if [ -n "$SRC" ]; then
+  echo "Installing the Nova folder $SRC."
+else
+  # The branch's latest commit, downloaded as it is on GitHub. Recording that commit is what
+  # lets Nova tell, later, whether GitHub has something newer to update to.
+  TMP=$(mktemp -d)
+  trap 'rm -rf "$TMP"' EXIT
+  COMMIT=$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/commits/$BRANCH" |
+    node -e 'let s = ""; process.stdin.on("data", (d) => s += d).on("end", () => console.log(JSON.parse(s).sha))') ||
+    fail "Couldn't find branch $BRANCH of github.com/$REPO. Check the name, and that the repository is public."
+  curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$COMMIT" | tar -xz -C "$TMP" --strip-components=1 ||
+    fail "Couldn't download Nova from GitHub."
+  [ -f "$TMP/server/launcher.js" ] && [ -f "$TMP/package-lock.json" ] || fail "github.com/$REPO doesn't look like Nova."
+  SRC=$TMP
+  echo "Downloaded github.com/$REPO at ${COMMIT:0:7}."
+fi
 
 step 'User'
 if id nova >/dev/null 2>&1; then
@@ -82,7 +131,21 @@ else
     exclude+=(--exclude=/package.json --exclude=/package-lock.json)
   fi
   rsync -a --delete "${exclude[@]}" --chown=nova:nova "$SRC/" "$APP/"
-  echo "Copied $SRC to $APP."
+  echo "Copied the app to $APP."
+  # Record which commit this is, so Nova's own updates (Settings, Updates) can tell whether
+  # GitHub has something newer: the downloaded commit, or a local folder's clean git HEAD.
+  # Without one, Nova only offers updates with a higher version number.
+  if [ -z "$COMMIT" ]; then
+    srcgit() { git -c safe.directory='*' -C "$SRC" "$@" 2>/dev/null; }
+    if head=$(srcgit rev-parse HEAD) && [ -z "$(srcgit status --porcelain --untracked-files=no)" ]; then COMMIT=$head; fi
+  fi
+  if [ -n "$COMMIT" ]; then
+    printf '{ "commit": "%s", "version": "%s" }\n' "$COMMIT" "$(node -p "require('$APP/package.json').version")" > "$APP/build.json"
+    chown nova:nova "$APP/build.json"
+    echo "Nova will update itself from github.com/$REPO ($BRANCH) from commit ${COMMIT:0:7} on."
+  else
+    echo "This folder isn't a clean git checkout, so Nova will only offer updates with a higher version number."
+  fi
 fi
 chown -R nova:nova "$APP"
 
@@ -102,12 +165,14 @@ if [ -f "$DATA/config.json" ]; then
   mode=$(node -p "require('$DATA/config.json').server?.mode || 'local'" 2>/dev/null || echo unknown)
   [ "$mode" = remote ] || echo "Note: server.mode is \"$mode\". Behind Cloudflare Tunnel it should be \"remote\" (Secure cookies)."
 else
+  # Self-updates follow the repository this was installed from; the default needs no entry.
   as_nova node -e '
-    const [file, brain, port] = process.argv.slice(1);
+    const [file, brain, port, repo, branch] = process.argv.slice(1);
     const config = { server: { mode: "remote" } };
     if (port) config.server.port = Number(port);
     if (brain) config.paths = { brainDir: brain };
-    require("fs").writeFileSync(file, JSON.stringify(config, null, 2) + "\n");' "$DATA/config.json" "$BRAIN" "$PORT"
+    if (repo !== "karlfoster87/nova-app" || branch !== "main") config.updates = { appRepo: repo, appBranch: branch };
+    require("fs").writeFileSync(file, JSON.stringify(config, null, 2) + "\n");' "$DATA/config.json" "$BRAIN" "$PORT" "$REPO" "$BRANCH"
   echo "Wrote $DATA/config.json (mode remote${BRAIN:+, brain $BRAIN}${PORT:+, port $PORT})."
 fi
 brain=$(node -p "require('$DATA/config.json').paths?.brainDir || ''" 2>/dev/null || true)
@@ -175,7 +240,8 @@ Next, if you haven't already:
   1. Create your admin profile:      nova add-profile <name> --admin
   2. Point cloudflared at http://127.0.0.1:$port (README, Remote access).
   3. Open Nova, sign in, then Settings, Claude: Sign in with Claude.
-The Proxmox firewall rules are set on the host, not here (README, Home server step 6).
+The Proxmox firewall rules are set on the host, not here (README, Proxmox step 7).
 
-Logs: nova logs      Update: copy a newer Nova folder here and run this script again.
+Updates: Settings, Updates in Nova (from GitHub). Logs: nova logs
+To repair the install, run this same command again.
 EOF

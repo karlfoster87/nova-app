@@ -1102,7 +1102,7 @@ a.file-name:hover { text-decoration: underline; color: var(--accent); }
 .stack .row, .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .stack p { margin: 0; }
 #signinSteps { margin: 0; }
-#signinLink { color: var(--accent); text-underline-offset: 3px; }
+#signinLink, #appRepoLink { color: var(--accent); text-underline-offset: 3px; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 14px; }
 fieldset.grid-2 legend { grid-column: 1 / -1; }
 .settings label.check { display: flex; gap: 8px; align-items: center; }

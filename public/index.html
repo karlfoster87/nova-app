@@ -340,6 +340,21 @@
     </section>
 
     <section class="panel" data-panel="updates" role="tabpanel" hidden>
+      <form id="appForm" class="stack">
+        <h3>Nova</h3>
+        <p class="muted">Nova updates itself from <a id="appRepoLink" target="_blank" rel="noopener noreferrer">GitHub</a>. An update is downloaded into a staging folder and tested there first. Nova then restarts to install it, and goes back to this version if the new one fails to install or to start. A copy with changes that aren't on GitHub yet is never updated.</p>
+        <dl class="facts">
+          <dt>Running</dt><dd id="appLocal"></dd>
+          <dt>On GitHub</dt><dd id="appRemote"></dd>
+        </dl>
+        <p class="muted" id="appLast"></p>
+        <div class="row">
+          <button type="submit" class="send-btn" id="appUpdate" hidden>Update and restart</button>
+          <button type="button" class="text-btn" id="appCheck">Check now</button>
+        </div>
+        <p class="form-status" role="status"></p>
+      </form>
+
       <form id="sdkForm" class="stack">
         <h3>Claude Agent SDK</h3>
         <p class="muted">Nova talks to Claude through this package. Updating installs the new version into a staging folder and tests it first. Nova restarts only if the test passes, and open chats close when it does. Nova never updates by itself.</p>
@@ -357,7 +372,7 @@
 
       <form id="sdkCheckForm" class="stack">
         <label>Check for a new version every (hours) <input name="checkHours" type="number" min="0" max="720" step="1"></label>
-        <p class="muted">Use 0 to stop checking. Checking only asks npm for the version number; installing always needs an admin.</p>
+        <p class="muted">Covers Nova and the Claude Agent SDK. Use 0 to stop checking. Checking only asks GitHub and npm what's new; installing always needs an admin.</p>
         <div class="row"><button type="submit" class="send-btn">Save</button></div>
         <p class="form-status" role="status"></p>
       </form>

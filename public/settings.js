@@ -134,7 +134,7 @@ export function initSettings(ctx) {
     if (name === 'permissions') loadPermissions();
     if (name === 'profiles') loadProfiles();
     if (name === 'claude') loadClaude();
-    if (name === 'updates') loadUpdates();
+    if (name === 'updates') { loadApp(); loadUpdates(); }
   }
   function applyRole() {
     for (const el of dlg.querySelectorAll('[data-admin]')) el.hidden = !isAdmin();
@@ -557,6 +557,85 @@ export function initSettings(ctx) {
     restarting: 'Test passed. Restarting to install it…' };
   let sdk = null, sdkPoll = null, sdkBoot = null;
   const when = (ms) => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+  // Nova's own updates from GitHub. Same flow as the SDK below.
+  const appForm = $('appForm');
+  const APP_STEPS = { downloading: 'Downloading the new version from GitHub…', installing: 'Installing its packages in the staging folder…',
+    testing: 'Testing the new version. This takes about a minute…', restarting: 'Tests passed. Restarting to install it…' };
+  let app = null, appPoll = null, appBoot = null;
+  const sha7 = (sha) => (sha ? sha.slice(0, 7) : '');
+  const count = (n, one) => `${n} ${n === 1 ? one : `${one}s`}`;
+
+  // What the last check found, in words. A copy with work GitHub doesn't have is never updated.
+  function appRelation(s) {
+    const l = s.local || {};
+    switch (s.relation) {
+      case 'current': return 'Nova is up to date.';
+      case 'behind': return s.behind ? `GitHub has ${count(s.behind, 'new commit')}.` : `GitHub has a newer version (${s.remote?.version}).`;
+      case 'ahead': return s.ahead ? `This copy is ${count(s.ahead, 'commit')} ahead of GitHub, so there's nothing to update.`
+        : 'This copy has commits GitHub doesn\'t have yet, so there\'s nothing to update.';
+      case 'modified': return `This copy has ${count(l.changes, 'changed file')} not committed yet, so it won't update from GitHub. Commit and push them, or discard them.`;
+      case 'diverged': return `This copy and GitHub have both moved on (${s.ahead} ahead, ${s.behind} behind), so Nova won't update it. Update it with git.`;
+      case 'unknown': return `This copy doesn't know which commit it is, and GitHub's version (${s.remote?.version || 'unknown'}) isn't newer than ${l.version}, so there's nothing to update.`;
+      case 'stale': return 'This copy changed since the last check. Check again.';
+      default: return s.checkedAt ? '' : 'Not checked yet.';
+    }
+  }
+
+  function renderApp(s) {
+    app = s;
+    const status = appForm.querySelector('.form-status');
+    appForm.hidden = !s.enabled;
+    if (!s.enabled) return;
+    $('appRepoLink').href = `https://github.com/${s.repo}`;
+    $('appRepoLink').textContent = `github.com/${s.repo}`;
+    const l = s.local || {}, r = s.remote;
+    $('appLocal').textContent = [l.version, l.commit ? sha7(l.commit) : 'commit unknown', l.mode === 'git' ? 'git checkout' : null].filter(Boolean).join(' · ');
+    $('appRemote').textContent = r ? `${r.version || 'unknown'} · ${sha7(r.commit)}${r.date ? ` · ${when(Date.parse(r.date))}` : ''}${r.message ? `: ${r.message}` : ''}`
+      : s.checkError ? 'Couldn\'t check' : 'Not checked yet';
+    const last = s.last;
+    $('appLast').textContent = !last ? ''
+      : last.ok ? `Last update: ${last.fromVersion} (${sha7(last.from) || 'commit unknown'}) to ${last.version} (${sha7(last.commit)}) by ${last.by}, ${when(last.at)}.`
+      : `The last update, to ${last.version} (${sha7(last.commit)}) on ${when(last.at)}, didn't go through, so Nova stayed on ${last.fromVersion}. ${last.error || ''}` +
+        (last.restoreError ? ` Putting it back also failed: ${last.restoreError}` : '');
+    const update = $('appUpdate');
+    update.hidden = !s.available;
+    update.textContent = s.available ? `Update to ${r.version} (${sha7(r.commit)}) and restart` : 'Update and restart';
+    update.disabled = !!s.step || !s.canRestart;
+    $('appCheck').disabled = !!s.step;
+    if (s.step) setStatus(status, APP_STEPS[s.step] || 'Working…');
+    else if (s.error) setStatus(status, s.error, true);
+    else if (s.checkError) setStatus(status, s.checkError, true);
+    else if (s.available && !s.canRestart) setStatus(status, 'Nova wasn\'t started with npm start or its service, so it can\'t restart itself to update. Update it by hand as the README describes.', true);
+    else if (s.available && s.busyChats) setStatus(status, `${appRelation(s)} ${s.busyChats === 1 ? 'A chat is' : `${s.busyChats} chats are`} working or waiting for an answer. Updating waits until they're finished.`);
+    else setStatus(status, appRelation(s));
+    clearTimeout(appPoll);
+    if (s.step === 'restarting') showRestarting(`Installing Nova ${r?.version || ''}. This page reloads by itself when Nova is back.`, appBoot);
+    else if (s.step && dlg.open) appPoll = setTimeout(() => loadApp(), 2000);
+  }
+
+  async function loadApp() {
+    try { renderApp(await api('GET', '/api/settings/app')); }
+    catch (err) { setStatus(appForm.querySelector('.form-status'), err.message, true); }
+  }
+
+  appForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!app?.available) return;
+    const l = app.local, r = app.remote;
+    if (!(await confirmDialog({ title: `Update Nova to ${r.version}?`, confirm: 'Update and restart',
+      message: `From ${l.version} (${sha7(l.commit) || 'commit unknown'}) to ${r.version} (${sha7(r.commit)}): ${r.message}\n\nNova tests the new version first, then restarts, which closes open chats.` }))) return;
+    run(appForm, async () => {
+      const res = await api('POST', '/api/settings/app/update', { commit: r.commit });
+      appBoot = res.boot;
+      renderApp(res);
+      return '';
+    });
+  });
+
+  $('appCheck').addEventListener('click', () => {
+    run(appForm, async () => { renderApp(await api('POST', '/api/settings/app/check')); return ''; });
+  });
 
   function renderSdk(s) {
     sdk = s;

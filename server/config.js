@@ -41,7 +41,9 @@ const defaults = {
     idleMinutes: 30       // close idle chat processes after this long
   },
   updates: {
-    checkHours: 24        // how often to look for a new Agent SDK on npm; 0 = never. Installing always needs an admin.
+    checkHours: 24,       // how often to look for a new Agent SDK on npm and a new Nova on GitHub; 0 = never. Installing always needs an admin.
+    appRepo: 'karlfoster87/nova-app', // GitHub owner/name Nova updates itself from; '' turns app updates off
+    appBranch: 'main'
   },
   uploads: {
     maxMB: 25,            // per file

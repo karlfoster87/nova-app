@@ -15,6 +15,7 @@ import { hub } from './hub.js';
 import { meta, publicMeta, signedIn } from './meta.js';
 import { signinStatus, startSignin, submitCode, cancelSignin, signOut } from './signin.js';
 import { updateStatus, checkLatest, scheduleChecks, startUpdate } from './updates.js';
+import { appStatus, checkApp, scheduleAppChecks, startAppUpdate } from './appupdate.js';
 import { createChat, runnerFor, existingRunner, ownedChat, history, stateOf, PERMISSION_MODES, busyRunners, closeAllRunners, refreshRunners, refreshAllRunners, adoptTranscripts } from './chat.js';
 import { listApprovals, forgetApproval, shareApproval, listFolders, addFolder, removeFolder } from './permissions.js';
 import { VIEWS, accessFor, can } from './access.js';
@@ -412,6 +413,7 @@ const server = http.createServer(async (req, res) => {
       if (!Number.isInteger(hours) || hours < 0 || hours > 24 * 30) return send(res, 400, { error: 'Check every 1 to 720 hours, or 0 to stop checking.' });
       saveConfig('updates', { checkHours: hours });
       scheduleChecks();
+      scheduleAppChecks();
       return send(res, 200, { ...updateStatus(), canRestart: SUPERVISED });
     }
     if (p === '/api/settings/sdk/check' && req.method === 'POST') {
@@ -429,6 +431,24 @@ const server = http.createServer(async (req, res) => {
         restartSoon();
       });
       return send(res, 202, { ...updateStatus(), canRestart: SUPERVISED, boot: BOOT_ID });
+    }
+    // Nova's own updates from GitHub: same timer and flow as the SDK's (see appupdate.js).
+    if (p === '/api/settings/app' && req.method === 'GET') return send(res, 200, { ...(await appStatus()), canRestart: SUPERVISED });
+    if (p === '/api/settings/app/check' && req.method === 'POST') {
+      await checkApp();
+      return send(res, 200, { ...(await appStatus()), canRestart: SUPERVISED });
+    }
+    if (p === '/api/settings/app/update' && req.method === 'POST') {
+      if (!SUPERVISED) {
+        return send(res, 409, { error: 'Nova can only update itself when started with npm start, the Windows task or the systemd service, ' +
+          'because it has to restart. Update it by hand as the README describes.' });
+      }
+      startAppUpdate(profile, String((await readJson(req)).commit || ''), (target) => {
+        console.log(`Restarting to update Nova to ${target.version} (${target.commit.slice(0, 7)}).`);
+        hub.toAll({ t: 'restarting', reason: `Updating Nova to ${target.version}.`, boot: BOOT_ID });
+        restartSoon();
+      });
+      return send(res, 202, { ...(await appStatus()), canRestart: SUPERVISED, boot: BOOT_ID });
     }
     if (p === '/api/settings' && req.method === 'POST') {
       const body = await readJson(req);
@@ -568,4 +588,5 @@ server.listen(config.server.port, config.server.host, () => {
   meta.start().catch((err) => console.error('Meta session failed to start:', err.message));
   sweepUploads();
   scheduleChecks();
+  scheduleAppChecks();
 });
