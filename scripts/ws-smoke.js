@@ -161,7 +161,7 @@ async function run() {
   const b = await signIn('smoke-b');
 
   // The presence panel's and installed app's modules are app code: served to a session only.
-  for (const mod of ['/presence.js', '/avatars.js', '/log.js', '/pwa.js']) {
+  for (const mod of ['/presence.js', '/avatars.js', '/log.js', '/pwa.js', '/commands.js']) {
     check((await http('GET', mod)).status === 302, `${mod} redirects without a session`);
     check((await http('GET', mod, { cookie: a })).status === 200, `${mod} is served to a session`);
   }
@@ -550,6 +550,7 @@ async function tasksAndNotes(a, b, c) {
   await claudeSignin(a, b);
   await pins(a);
   await pictures(a, b);
+  await slashCommands(a);
 
   // Nova's own updates. Checks are off here (checkHours 0), so nothing asks GitHub.
   const app = await http('GET', '/api/settings/app', { cookie: a });
@@ -561,6 +562,24 @@ async function tasksAndNotes(a, b, c) {
     'a user can\'t see or check Nova\'s updates');
   check((await http('POST', '/api/settings/app/update', { cookie: a, body: { commit: 'f'.repeat(40) } })).status === 409,
     'nothing is installed without a check that found an update');
+}
+
+// Slash commands for the composer: the brain's own skills and Claude Code's, from an idle session
+// that's never prompted. The skill exists only for this check, so the brain's file counts above hold.
+async function slashCommands(a) {
+  put('.claude/skills/smoke-skill/SKILL.md', '---\nname: smoke-skill\ndescription: A skill made by the smoke test\n---\nDo nothing.\n');
+  try {
+    check((await http('GET', '/api/commands')).status === 401, 'commands need a session');
+    const r = await http('GET', '/api/commands', { cookie: a });
+    const list = Array.isArray(r.data) ? r.data : [];
+    const mine = list.find((c) => c.name === 'smoke-skill');
+    check(r.status === 200 && mine?.source === 'brain' && mine.description === 'A skill made by the smoke test', 'the brain\'s own skill is listed as the brain\'s');
+    check(list.some((c) => c.source === 'claude') && list.findIndex((c) => c.source === 'claude') > list.findIndex((c) => c.source === 'brain'),
+      'Claude Code\'s commands are listed after the brain\'s');
+    check(!list.some((c) => c.name === 'clear' || c.name.startsWith('_')), 'commands that would work against Nova are left out');
+  } finally {
+    fs.rmSync(path.join(brainDir, '.claude', 'skills'), { recursive: true, force: true });
+  }
 }
 
 // Profile pictures: self or admin to change, any session to see, sniffed type.

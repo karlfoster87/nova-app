@@ -3,6 +3,7 @@ import { initSettings, showRestarting } from '/settings.js';
 import { initSidebar } from '/sidebar.js';
 import { openLog, log } from '/log.js';
 import { initPwa } from '/pwa.js';
+import { initCommands } from '/commands.js';
 import '/presence.js'; // the avatar and logs panel; it listens for nova:presence and nova:log
 
 const $ = (id) => document.getElementById(id);
@@ -295,6 +296,7 @@ function submit() {
   const attachments = state.attachments.filter((a) => a.id).map((a) => a.id);
   if ((!text && !attachments.length) || els.send.disabled) return;
   els.input.value = '';
+  commands.close();
   autoGrow();
   state.attachments = []; // ones that failed to upload are dropped with the rest
   renderAttachments();
@@ -396,8 +398,12 @@ window.addEventListener('drop', (e) => { if (carriesFiles(e)) e.preventDefault()
 
 function autoGrow() { els.input.style.height = 'auto'; els.input.style.height = `${els.input.scrollHeight}px`; }
 
+// Slash command suggestions: / as the first character lists the commands a chat can run.
+const commands = initCommands({ input: els.input, menu: $('cmdMenu'), currentChat: () => state.current, onFill: autoGrow });
+
 els.composer.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
 els.input.addEventListener('keydown', (e) => {
+  if (commands.onKeydown(e)) return; // the command list has the arrow keys, Enter, Tab and Esc while it's open
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
 });
 els.input.addEventListener('input', autoGrow);

@@ -23,6 +23,7 @@ import { listFolder, readFile, writeFile, download, image, video, resolveLinks, 
 import { listTasks, tasksLeftToday, createTask, updateTask, moveTask, deleteTask } from './tasks.js';
 import { listNotes, activeNoteCount, createNote, updateNote, moveNote, deleteNote } from './notes.js';
 import { saveUpload, discardUpload, openUpload, claimUploads, messageContent, sweepUploads } from './uploads.js';
+import { commandsFor } from './commands.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(root, '..', 'public');
@@ -156,7 +157,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/' || p === '/index.html') return serveFile(res, path.join(PUBLIC, 'index.html'));
-    if (/^\/(app|render|settings|sidebar|menu|dialog|brain|tasks|notes|presence|avatars|log|pwa)\.js$/.test(p)) return serveFile(res, path.join(PUBLIC, p));
+    if (/^\/(app|render|settings|sidebar|menu|dialog|brain|tasks|notes|presence|avatars|log|pwa|commands)\.js$/.test(p)) return serveFile(res, path.join(PUBLIC, p));
 
     if (p === '/api/logout' && req.method === 'POST') {
       logout(req);
@@ -239,6 +240,15 @@ const server = http.createServer(async (req, res) => {
         q.deleteChat.run(id, profile); // transcript file stays on disk, just unlisted
         hub.toProfile(profile, { t: 'chats_changed', deleted: id });
         return send(res, 200, { ok: true });
+      }
+    }
+
+    // Slash commands for the composer's suggestions, from the open chat when chatId names one.
+    if (p === '/api/commands' && req.method === 'GET') {
+      try { return send(res, 200, await commandsFor(profile, url.searchParams.get('chatId'))); }
+      catch (err) {
+        console.error('Listing slash commands failed:', err.message);
+        return send(res, 502, { error: 'Couldn\'t load the commands from Claude Code. Try again in a moment.' });
       }
     }
 

@@ -7,7 +7,7 @@ One codebase runs in two places:
 - **Windows:** a background process on your own machine, reached on `127.0.0.1` and installed as an Edge app.
 - **Proxmox LXC:** an always-on service in an unprivileged container, reached remotely through Cloudflare Tunnel.
 
-Version 0.2.3. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-ai/claude-agent-sdk` 0.3.284.
+Version 0.2.4. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-ai/claude-agent-sdk` 0.3.284.
 
 ## Features
 
@@ -17,6 +17,7 @@ Version 0.2.3. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropi
 - Permission prompts: allow once, allow for this chat, always allow (remembered per profile), or deny. Claude's multiple-choice questions are answered inline
 - Per-chat model, effort and permission mode (ask first, auto-accept edits, auto, plan only), switched without restarting the chat
 - File and image attachments
+- Slash command suggestions: type `/` at the start of a message to pick from the brain's own skills and commands (its `.claude` folder) and Claude Code's built-in ones
 - Several chats at once, each with its own Claude Code process. Idle ones close after 30 minutes, and history and sessions resume after a restart
 - Chats organised into categories, with drag and drop, rename, move, delete and title search
 

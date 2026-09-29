@@ -87,6 +87,7 @@
 
       <form class="composer" id="composer">
         <div class="composer-box">
+          <ul class="cmd-menu" id="cmdMenu" role="listbox" aria-label="Commands" hidden></ul>
           <ul class="file-chips attach-list" id="attachList" aria-label="Attached files" hidden></ul>
           <textarea id="input" rows="1" placeholder="Message Claude" aria-label="Message"></textarea>
           <div class="composer-actions">
@@ -94,7 +95,7 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 11.5-8.4 8.4a5.4 5.4 0 0 1-7.6-7.6l8.4-8.4a3.6 3.6 0 0 1 5.1 5.1l-8.4 8.4a1.8 1.8 0 0 1-2.5-2.5l7.7-7.7"/></svg>
             </button>
             <input type="file" id="fileInput" multiple hidden>
-            <span class="hint" id="hint">Enter to send, Shift+Enter for a new line. Drop files to attach.</span>
+            <span class="hint" id="hint">Enter to send, Shift+Enter for a new line, / for commands. Drop files to attach.</span>
             <button type="button" class="stop-btn" id="stopBtn" hidden>Stop</button>
             <button type="submit" class="send-btn icon-send" id="sendBtn" aria-label="Send">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12 20 4.5 16 20l-4-6.5ZM12 13.5 20 4.5"/></svg>

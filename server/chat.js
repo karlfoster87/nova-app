@@ -22,6 +22,24 @@ const FORWARD = new Set([
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'plan'];
 const TASK_DONE = new Set(['completed', 'failed', 'killed']);
 
+// Where a profile's Claude Code sessions run and what they load: the brain, the profile's notes,
+// uploads and extra folders, and the brain's own .claude settings. Chats and the composer's
+// command list (commands.js) share it, so the list shows what a chat can actually run.
+export function sessionBase(profile) {
+  const uploads = uploadsDir(profile); // attachments sent in this profile's chats
+  fs.mkdirSync(uploads, { recursive: true });
+  return {
+    cwd: config.paths.brainDir,
+    additionalDirectories: [profileDir(profile), uploads, ...folderPaths(profile)],
+    settingSources: config.claude.settingSources,
+    env: agentEnv()
+  };
+}
+
+// Commands Claude Code says only make sense in its own terminal (exit, statusline and the like),
+// from the latest chat that started. The composer leaves them out.
+export const terminalCommands = new Set();
+
 class InputQueue {
   constructor() { this.items = []; this.waiter = null; this.closed = false; }
   push(item) {
@@ -51,19 +69,14 @@ class ChatRunner {
     this.input = new InputQueue();
 
     const ctx = profileDir(profile);
-    const uploads = uploadsDir(profile); // attachments sent in this profile's chats
-    fs.mkdirSync(uploads, { recursive: true });
     const options = {
-      cwd: config.paths.brainDir,
-      additionalDirectories: [ctx, uploads, ...folderPaths(profile)],
-      settingSources: config.claude.settingSources,
+      ...sessionBase(profile),
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
         append: `You are running in the Nova console under the "${profile}" profile. ` +
           `Notes specific to this profile live in ${ctx}; read them when context about the profile would help.`
       },
       includePartialMessages: true,
-      env: agentEnv(),
       canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts)
     };
     if (model) options.model = model;
@@ -122,6 +135,10 @@ class ChatRunner {
   // permission mode in step with what the Claude Code process reports.
   trackSystem(msg) {
     const s = msg.subtype;
+    if (s === 'init' && Array.isArray(msg.terminal_slash_commands)) {
+      terminalCommands.clear();
+      for (const c of msg.terminal_slash_commands) terminalCommands.add(String(c));
+    }
     if (s === 'task_started') this.tasks.set(msg.task_id, { started: msg });
     else if (s === 'task_progress' && this.tasks.has(msg.task_id)) this.tasks.get(msg.task_id).progress = msg;
     else if (s === 'task_notification' || (s === 'task_updated' && TASK_DONE.has(msg.patch?.status))) this.tasks.delete(msg.task_id);

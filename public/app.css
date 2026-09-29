@@ -789,6 +789,25 @@ details.tool.error .tool-status { color: var(--bad); }
 .icon-send:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
 .composer.drop-files .composer-box { background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 0 22px -4px var(--glow); }
 
+/* Slash command suggestions (commands.js): a list that opens upwards from the composer box. */
+.composer-box { position: relative; }
+.cmd-menu {
+  position: absolute; left: -1px; right: -1px; bottom: calc(100% + 6px); z-index: 30; margin: 0; padding: 4px; list-style: none;
+  max-height: min(50vh, 380px); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--raised); border: 1px solid var(--line-bright); border-radius: var(--r-sm);
+  box-shadow: 0 -10px 30px rgb(0 0 0 / 0.45), 0 0 18px -8px var(--glow);
+}
+.cmd-group { margin: 8px 10px 2px; font-size: 10.5px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; }
+.cmd-group:first-child { margin-top: 4px; }
+.cmd-item { display: grid; gap: 1px; padding: 6px 10px; border-radius: 2px; cursor: pointer; }
+.cmd-item[aria-selected="true"], .cmd-item:hover { background: var(--accent-soft); }
+.cmd-line { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.cmd-name { color: var(--bright); font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+.cmd-item[aria-selected="true"] .cmd-name { color: var(--accent); }
+.cmd-args { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cmd-desc { color: var(--muted); font-size: 11.5px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-note { padding: 8px 10px; color: var(--muted); font-size: 12px; }
+
 /* Attached files as capsules: in the composer, and in sent messages */
 .file-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .attach-list { margin: 0 0 8px; }
