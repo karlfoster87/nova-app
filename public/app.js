@@ -27,6 +27,10 @@ function applyTheme(theme) {
   const t = THEMES[theme] ? theme : 'dark';
   document.documentElement.dataset.theme = t;
   document.documentElement.dataset.scheme = t === 'system' ? (systemLight.matches ? 'light' : 'dark') : t;
+  // The installed app colours its window (and, with the title bar hidden, the system's window
+  // controls) from theme-color, so it follows the page's background.
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--void').trim();
+  if (bg) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
 }
 systemLight.addEventListener('change', () => applyTheme(document.documentElement.dataset.theme));
 applyTheme(store.get('theme', 'dark'));

@@ -1249,3 +1249,35 @@ fieldset.grid-2 legend { grid-column: 1 / -1; }
   .attach-btn { margin-right: auto; }
   .hint { display: none; } /* touch keyboards have their own send key */
 }
+
+/* ---- Desktop app title bar (Window Controls Overlay) -------------------
+   Installed as an app on a desktop browser that supports it, Nova hides the browser's title bar
+   (display_override in the manifest). The header bar then takes that strip: env(titlebar-area-*)
+   is the part the system's window controls leave free, and the bar drags the window like a
+   title bar, with its buttons and meters left clickable. The system keeps drawing its own
+   minimise, maximise and close buttons, so Nova adds none. Nothing here applies anywhere else,
+   phones included. */
+@media (display-mode: window-controls-overlay) {
+  .appbar {
+    margin-left: env(titlebar-area-x, 0px); width: env(titlebar-area-width, 100%);
+    min-height: env(titlebar-area-height, 33px); padding-top: 0; padding-bottom: 0; gap: 14px;
+    app-region: drag; -webkit-app-region: drag;
+  }
+  .appbar button, .appbar .usage, .appbar a, .appbar select, .appbar input { app-region: no-drag; -webkit-app-region: no-drag; }
+  .appbar .icon-btn { padding: 4px; }
+  .appbar .icon-btn svg { width: 18px; height: 18px; }
+  .brand { gap: 8px; }
+  .brand-mark { width: 20px; height: 20px; }
+  .brand-name { font-size: 16px; }
+  .brand-tag { font-size: 10.5px; }
+  .sys { font-size: 12px; }
+  .meter { padding: 2px 0; }
+  .slashes i { height: 12px; }
+}
+/* Drawers start under the title bar strip, clear of the system's window controls. */
+@media (display-mode: window-controls-overlay) and (max-width: 1080px) {
+  .presence { top: calc(env(titlebar-area-height, 0px) + 8px); }
+}
+@media (display-mode: window-controls-overlay) and (max-width: 760px) {
+  .sidebar, .presence { top: env(titlebar-area-height, 0px); }
+}

@@ -3,6 +3,7 @@
   "short_name": "Nova",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay"],
   "background_color": "#03060C",
   "theme_color": "#05080F",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]

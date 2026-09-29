@@ -7,7 +7,7 @@ One codebase runs in two places:
 - **Windows:** a background process on your own machine, reached on `127.0.0.1` and installed as an Edge app.
 - **Proxmox LXC:** an always-on service in an unprivileged container, reached remotely through Cloudflare Tunnel.
 
-Version 0.2.1. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-ai/claude-agent-sdk` 0.3.284.
+Version 0.2.2. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-ai/claude-agent-sdk` 0.3.284.
 
 ## Features
 
@@ -41,6 +41,7 @@ Version 0.2.1. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropi
 
 **Interface**
 - Neon console design, dark by default with a light option. Responsive down to phone width
+- Installed as a desktop app, Nova hides the browser's title bar and its header bar takes that space, beside the system's window buttons. Phones and browser tabs keep the usual layout
 - Presence panel with an animated avatar that follows what Claude is doing, sub-agent activity, and an activity log
 
 ## Install on Windows
