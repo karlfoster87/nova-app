@@ -7,6 +7,7 @@
   <title>Nova</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap">
   <link rel="stylesheet" href="/app.css">
@@ -225,6 +226,12 @@
           <option value="dark">Dark</option><option value="light">Light</option><option value="system">Match the system</option>
         </select></label>
         <p class="muted">Saved in this browser only, so a phone and a desktop can differ.</p>
+        <p class="form-status" role="status"></p>
+      </form>
+      <form id="notifyForm" class="stack" hidden>
+        <h3>Notifications</h3>
+        <label class="check"><input type="checkbox" name="notify"> Tell me when Claude finishes or needs me</label>
+        <p class="muted">Saved in this browser only. They show while Nova is open but not in front.</p>
         <p class="form-status" role="status"></p>
       </form>
       <form id="prefsForm" class="stack">

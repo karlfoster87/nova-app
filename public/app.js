@@ -2,6 +2,7 @@ import { Transcript, fileChip, toolSummary, AGENT_TOOLS, h, pictureUrl } from '/
 import { initSettings, showRestarting } from '/settings.js';
 import { initSidebar } from '/sidebar.js';
 import { openLog, log } from '/log.js';
+import { initPwa } from '/pwa.js';
 import '/presence.js'; // the avatar and logs panel; it listens for nova:presence and nova:log
 
 const $ = (id) => document.getElementById(id);
@@ -72,6 +73,7 @@ function connect() {
     retry = 0;
     setLink('online');
     log('system', lostAt ? 'Reconnected to Nova' : 'Connected to Nova');
+    if (lostAt) pwa.reset();
     lostAt = 0;
     if (state.current) { state.transcripts.delete(state.current); openChat(state.current); }
   };
@@ -165,6 +167,7 @@ function logEvent(m) {
 
 function onServer(m) {
   try { logEvent(m); } catch (err) { console.error('Log entry failed', err); } // the log must never break the chat
+  try { pwa.onServer(m); } catch (err) { console.error('App notification failed', err); } // nor must notifications
   switch (m.t) {
     case 'meta': state.meta = m.meta; renderPickers(); renderUsage(); return;
     case 'created': {
@@ -229,8 +232,9 @@ function onServer(m) {
 
 // ---- Chats ----------------------------------------------------------------
 const sidebar = initSidebar({ state, store, list: els.chatList, openChat, newChat });
-const loadChats = () => sidebar.load().then(renderChatHead);
-const renderChatList = () => { sidebar.render(); renderChatHead(); };
+const pwa = initPwa({ state, store, titleOf, goToChat, route: (hash) => goTo(routeFromHash(hash)) });
+const loadChats = () => sidebar.load().then(() => { renderChatHead(); pwa.paintBadge(); });
+const renderChatList = () => { sidebar.render(); renderChatHead(); pwa.paintBadge(); };
 
 function openChat(id) {
   state.current = id;
@@ -727,13 +731,32 @@ async function showView(id, { arg, force = false } = {}) {
   store.set('view', id);
 }
 
-// A route like #brain/folder/file.md reopens that view and file after a reload.
-function routeFromHash() {
-  const m = /^#([a-z]+)(?:\/(.*))?$/.exec(location.hash);
+// A route like #brain/folder/file.md reopens that view and file after a reload. The app's
+// shortcuts use routes too: #tasks, #brain, #notes, and #chats/new for a new chat.
+function routeFromHash(hash = location.hash) {
+  const m = /^#([a-z]+)(?:\/(.*))?$/.exec(hash);
   if (!m) return null;
   let arg = m[2] || undefined;
   try { if (arg) arg = decodeURIComponent(arg); } catch { arg = undefined; }
   return { id: m[1], arg };
+}
+
+// Follows a route, from the address bar or a launch of the app. Views this profile can't use
+// are ignored, so a shortcut to one just opens Nova.
+async function goTo(route) {
+  if (!route) return;
+  if (route.id === 'chats') {
+    await showView('chats');
+    if (view === 'chats' && route.arg === 'new') newChat(null);
+    return;
+  }
+  if (allowedViews().some((v) => v.id === route.id)) showView(route.id, { arg: route.arg });
+}
+
+// Opens a chat from anywhere, e.g. a notification: Chats first, unless the view won't let go.
+async function goToChat(id) {
+  await showView('chats');
+  if (view === 'chats' && state.chats.some((c) => c.id === id)) openChat(id);
 }
 
 // ---- Settings and profiles ------------------------------------------------
@@ -769,6 +792,6 @@ $('profileBtn').addEventListener('click', () => settings.openSwitcher());
   await loadChats();
   newChat();
   connect();
-  const route = routeFromHash();
-  if (route && allowedViews().some((v) => v.id === route.id) && route.id !== 'chats') showView(route.id, { arg: route.arg });
+  await goTo(routeFromHash());
+  pwa.listenForLaunches(); // after routing is ready; relaunches and shortcuts route into this window
 })();

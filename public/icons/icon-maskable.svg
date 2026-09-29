@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Full-bleed version of icon.svg for Android's adaptive (maskable) icons and the iPhone home
+       screen, which crop the square to their own shape. The mark is smaller so it stays inside
+       the safe circle (the middle 80%) that every crop keeps. The PNGs beside this are rendered from it. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="0%" r="90%">
+      <stop offset="0" stop-color="#22D3EE" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="64" height="64" fill="#03060C"/>
+  <rect width="64" height="64" fill="url(#bg)"/>
+  <g filter="url(#glow)">
+    <g transform="translate(9.6 9.6) scale(1.4)" fill="none" stroke="#22D3EE" stroke-width="1.6">
+      <path d="M16 2.5 27.7 9.3v13.4L16 29.5 4.3 22.7V9.3Z"/>
+      <circle cx="16" cy="16" r="6.5"/>
+      <circle cx="16" cy="16" r="2.2" fill="#22D3EE" stroke="none"/>
+    </g>
+  </g>
+</svg>

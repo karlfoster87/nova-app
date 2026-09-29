@@ -160,11 +160,24 @@ async function run() {
   const a = await signIn('smoke-a');
   const b = await signIn('smoke-b');
 
-  // The presence panel's modules are app code: served to a session only.
-  for (const mod of ['/presence.js', '/avatars.js', '/log.js']) {
+  // The presence panel's and installed app's modules are app code: served to a session only.
+  for (const mod of ['/presence.js', '/avatars.js', '/log.js', '/pwa.js']) {
     check((await http('GET', mod)).status === 302, `${mod} redirects without a session`);
     check((await http('GET', mod, { cookie: a })).status === 200, `${mod} is served to a session`);
   }
+
+  // Browsers fetch the manifest and its icons without cookies, so they must be public.
+  const manifest = await (await fetch(`${base}/manifest.webmanifest`)).json().catch(() => null);
+  const iconPaths = [...(manifest?.icons || []), ...(manifest?.shortcuts || []).flatMap((s) => s.icons || [])].map((i) => i.src);
+  check(iconPaths.length > 0 && manifest?.launch_handler?.client_mode === 'focus-existing', 'the manifest lists its icons and focuses an open window');
+  let iconsOk = true;
+  for (const src of new Set(iconPaths)) {
+    const r = await fetch(`${base}${src}`);
+    if (r.status !== 200 || !/^image\//.test(r.headers.get('content-type') || '')) iconsOk = false;
+  }
+  check(iconsOk, 'every manifest icon is served as an image without a session');
+  check((await http('GET', '/icons/..%2Fapp.js')).status === 302 && (await http('GET', '/icons/nothing.png')).status === 404,
+    'the icons route serves only icon files that exist');
   check(typeof (await http('GET', '/api/me', { cookie: a })).data?.version === 'string', '/api/me reports the app version');
 
   // WebSocket: upgrade rules

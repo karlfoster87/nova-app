@@ -32,7 +32,7 @@ const VENDOR = {
   '/vendor/purify.js': path.join(NODE_MODULES, 'dompurify', 'dist', 'purify.es.mjs')
 };
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
-  '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
+  '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, '..', 'package.json'), 'utf8')).version; // shown in the header
 
@@ -136,6 +136,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/login' || p === '/login.html') return serveFile(res, path.join(PUBLIC, 'login.html'));
     if (VENDOR[p]) return serveFile(res, VENDOR[p]);
     if (['/app.css', '/login.js', '/manifest.webmanifest', '/icon.svg'].includes(p)) return serveFile(res, path.join(PUBLIC, p));
+    // App icons: browsers fetch the manifest's icons without the session cookie.
+    if (/^\/icons\/[a-z0-9-]+\.(png|svg)$/.test(p)) return serveFile(res, path.join(PUBLIC, p));
     // Polled by the restart screen. The boot ID is random per process, so a changed ID
     // means the restart has happened, however quickly.
     if (p === '/api/health') return send(res, 200, { ok: true, boot: BOOT_ID }, { 'Cache-Control': 'no-store' });
@@ -154,7 +156,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/' || p === '/index.html') return serveFile(res, path.join(PUBLIC, 'index.html'));
-    if (/^\/(app|render|settings|sidebar|menu|dialog|brain|tasks|notes|presence|avatars|log)\.js$/.test(p)) return serveFile(res, path.join(PUBLIC, p));
+    if (/^\/(app|render|settings|sidebar|menu|dialog|brain|tasks|notes|presence|avatars|log|pwa)\.js$/.test(p)) return serveFile(res, path.join(PUBLIC, p));
 
     if (p === '/api/logout' && req.method === 'POST') {
       logout(req);
