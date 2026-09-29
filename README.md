@@ -7,7 +7,7 @@ One codebase runs in two places:
 - **Windows:** a background process on your own machine, reached on `127.0.0.1` and installed as an Edge app.
 - **Proxmox LXC:** an always-on service in an unprivileged container, reached remotely through Cloudflare Tunnel.
 
-Version 0.2. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-ai/claude-agent-sdk` 0.3.283.
+Version 0.2.1. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-ai/claude-agent-sdk` 0.3.284.
 
 ## Features
 

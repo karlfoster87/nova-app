@@ -2,3 +2,7 @@ node_modules/
 data/
 build.json
 .claude/settings.local.json
+
+# Local context for Claude when working on Nova; not part of the app
+/CLAUDE.md
+/.llm-wiki/
