@@ -1,41 +1,26 @@
-// A small idle Agent SDK session that never receives a prompt. It exists to answer
-// control requests: which models are available, who is signed in, and plan usage.
-// Nothing here sends a message to Claude, so it does not use any of your limits.
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import { config, agentEnv } from './config.js';
-import { hub } from './hub.js';
+// The meta session: one idle Claude Code session (session.js) kept open to say which models
+// are available, who is signed in, and how much of the plan is used. Every tab gets this as
+// the 'meta' message, and again whenever it changes.
+import { config, agentEnv } from '../core/config.js';
+import { hub } from '../core/hub.js';
+import { idleSession } from './session.js';
 
 const state = {
   models: [],
   account: null,
   usage: null,        // last usage snapshot (plan windows + session cost)
-  authError: null,
-  sdkVersion: null
+  authError: null
 };
 
 let session = null;
 let usageTimer = null;
 let soonTimer = null;
 
-function neverEndingPrompt() {
-  let stop;
-  const done = new Promise((r) => { stop = r; });
-  const iterable = { async *[Symbol.asyncIterator]() { await done; } };
-  return { iterable, stop };
-}
-
 async function start() {
   stopSession();
   state.account = null; state.usage = null; // a restart follows a sign-in or sign-out: nothing old carries over
-  const prompt = neverEndingPrompt();
-  const q = query({
-    prompt: prompt.iterable,
-    options: { cwd: config.paths.brainDir, settingSources: [], env: agentEnv() }
-  });
-  session = { q, stop: prompt.stop };
-  // Drain messages so the process doesn't stall on backpressure.
-  (async () => { try { for await (const _ of q) {} } catch {} })();
-
+  session = idleSession({ cwd: config.paths.brainDir, settingSources: [], env: agentEnv() });
+  const q = session.query;
   try {
     const [models, account] = await Promise.all([q.supportedModels(), q.accountInfo()]);
     state.models = models;
@@ -52,9 +37,7 @@ async function start() {
 }
 
 function stopSession() {
-  if (!session) return;
-  session.stop();
-  try { session.q.close(); } catch {}
+  session?.close();
   session = null;
 }
 
@@ -63,9 +46,9 @@ async function refreshUsage() {
   try {
     // Experimental in the SDK and may be renamed. If it disappears, the bars fall back
     // to rate_limit_event data from live chats.
-    const fn = session.q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+    const fn = session.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
     if (typeof fn !== 'function') return;
-    const u = await fn.call(session.q, { skipBehaviors: true });
+    const u = await fn.call(session.query, { skipBehaviors: true });
     state.usage = {
       available: u.rate_limits_available,
       windows: u.rate_limits || {},

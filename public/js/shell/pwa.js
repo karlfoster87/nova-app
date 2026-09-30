@@ -7,7 +7,7 @@
 //     notifications through a service worker (Android) can't use them yet.
 //   Badge: the number of chats waiting for you on the app's icon: an approval or question
 //     to answer, or a reply you haven't opened yet.
-// It learns about chats from app.js, which passes every server message to onServer().
+// It learns about chats from chat/chats.js, which passes every server message to onServer().
 
 // ctx: { state, store, titleOf(chatId), goToChat(chatId), route(hash) }
 export function initPwa(ctx) {

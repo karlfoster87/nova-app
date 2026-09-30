@@ -3,8 +3,8 @@
 // be reached. Runs the bundled Claude Code against Nova's own Claude folder. Run it as the
 // OS user Nova runs as, with the same NOVA_DATA_DIR, then restart Nova.
 import { spawnSync } from 'node:child_process';
-import { agentEnv, CLAUDE_DIR } from '../server/config.js';
-import { claudeBinary } from '../server/signin.js';
+import { agentEnv, CLAUDE_DIR } from '../server/core/config.js';
+import { claudeBinary } from '../server/claude/signin.js';
 
 const ARGS = {
   '': ['auth', 'login', '--claudeai'], '--console': ['auth', 'login', '--console'],

@@ -1,9 +1,13 @@
 // Brain view: the brain folder as a tree in the sidebar, and the chosen
 // file in the main column, rendered with the transcript's markdown pipeline or edited as
 // plain text. The server decides what this profile may see and change; this mirrors it.
-import { h, renderMarkdown, fileSize } from '/render.js';
-import { openMenu } from '/menu.js';
-import { confirmDialog } from '/dialog.js';
+import { h, svgIcon } from '../lib/dom.js';
+import { api } from '../lib/api.js';
+import { store } from '../lib/store.js';
+import { fileSize } from '../lib/format.js';
+import { renderMarkdown } from '../lib/markdown.js';
+import { openMenu } from '../lib/menu.js';
+import { confirmDialog } from '../lib/dialog.js';
 
 const ICONS = {
   chevron: 'm9 6 6 6-6 6',
@@ -15,29 +19,7 @@ const ICONS = {
 };
 // Operating-system clutter a folder upload shouldn't carry into the brain.
 const JUNK = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
-function icon(name) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  p.setAttribute('d', ICONS[name]);
-  svg.append(p);
-  return svg;
-}
-
-async function api(method, url, body) {
-  const res = await fetch(url, {
-    method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined
-  });
-  if (res.status === 401) { location.href = '/login'; throw new Error('Signed out.'); }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(data.error || `Request failed (${res.status}). Try again.`);
-    err.status = res.status;
-    throw err;
-  }
-  return data;
-}
+const icon = (name) => svgIcon(ICONS[name]);
 
 const query = (p) => `path=${encodeURIComponent(p)}`;
 // The page route is path-shaped so an HTML file's relative links and images find its neighbours.
@@ -46,11 +28,6 @@ const pageUrl = (token, p) => `/api/brain/page/${token}/${p.split('/').map(encod
 const isText = (kind) => kind === 'markdown' || kind === 'text' || kind === 'html';
 const parentOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 const lf = (text) => text.replace(/\r\n?/g, '\n'); // a textarea only ever gives back \n
-function sizeText(bytes) {
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
 // A link's target inside the brain: relative to the file's folder, or to the brain root
 // when it starts with /. null if it climbs above the root.
@@ -103,7 +80,7 @@ const READ_ONLY = {
  *           setRoute: (route: string) => void, closeSidebar: () => void }} ctx
  */
 export function init(ctx) {
-  const { side, main, store } = ctx;
+  const { side, main } = ctx;
   const expanded = new Set(store.get('brain.expanded', []));
   const dirs = new Map(); // folder path -> entries, for every folder loaded so far
   let file = null;        // the open file as the server described it, plus lf (its text as edited)
@@ -176,7 +153,7 @@ export function init(ctx) {
     const item = h('button', {
       type: 'button', class: `tree-item ${isDir ? 'dir' : 'file'}`, role: 'treeitem', 'aria-level': String(depth + 1),
       'aria-expanded': isDir ? String(open) : null, 'aria-current': !isDir && file?.path === entry.path ? 'true' : null,
-      title: isDir ? entry.path : `${entry.path} · ${sizeText(entry.size)}`, 'data-path': entry.path, 'data-type': entry.type
+      title: isDir ? entry.path : `${entry.path} · ${fileSize(entry.size)}`, 'data-path': entry.path, 'data-type': entry.type
     }, isDir ? icon('chevron') : h('span', { class: 'tree-spacer' }), h('span', { class: 'tree-name' }, entry.name));
     item.addEventListener('click', () => (isDir ? toggleDir(entry.path) : openFile(entry.path)));
     const r = h('div', { class: `tree-row${open ? ' open' : ''}` }, item);
@@ -281,7 +258,7 @@ export function init(ctx) {
       const s = await api('GET', `/api/brain/download?${query(p)}&check=1`);
       if (!s.files) { notify('That folder has no files to download.'); return; }
       if (s.bytes > 50 * 1024 * 1024 && !(await confirmDialog({ title: `Download ${s.name}?`, confirm: 'Download zip',
-        message: `It holds ${s.files} files, ${sizeText(s.bytes)} before compression, so it may take a while.` }))) return;
+        message: `It holds ${s.files} files, ${fileSize(s.bytes)} before compression, so it may take a while.` }))) return;
       const a = h('a', { href: `/api/brain/download?${query(p)}`, download: s.name, hidden: true });
       document.body.append(a);
       a.click();
@@ -577,7 +554,7 @@ export function init(ctx) {
       doc.replaceChildren(h('article', { class: 'brain-article wide' }, videoPlayer(file.path, file.name, 'brain-video')));
     } else {
       const why = file.kind === 'large'
-        ? `This file is ${sizeText(file.size)}, too large to show here. Download it to open it.`
+        ? `This file is ${fileSize(file.size)}, too large to show here. Download it to open it.`
         : 'Nova shows text files, images and videos. Download this file to open it in another program.';
       doc.replaceChildren(h('div', { class: 'empty' }, h('h2', {}, file.name), h('p', {}, why)));
     }

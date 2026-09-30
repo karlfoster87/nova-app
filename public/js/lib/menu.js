@@ -1,10 +1,10 @@
 // Pop-up menu shared by the sidebar and the views. One menu is open at a time; arrow keys
 // move, Esc closes and returns focus, clicking outside closes.
-import { h } from '/render.js';
+import { h } from './dom.js';
 
 let menu = null;
 
-export function closeMenu(returnFocus = true) {
+function closeMenu(returnFocus = true) {
   if (!menu) return;
   const { el, anchor } = menu;
   menu = null;

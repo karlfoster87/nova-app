@@ -1,0 +1,159 @@
+/* The right-hand panel: avatar stage, status, sub-agents and their link activity, the logs. */
+/* ---- Presence panel: avatar, status, sub-agents, logs ------------------ */
+/* data-state drives colour: idle ready-green, thinking violet, writing cyan, tool magenta, waiting amber. */
+.presence { display: flex; flex-direction: column; overflow: hidden; --state: var(--ok); }
+.presence[data-state="thinking"] { --state: var(--think); }
+.presence[data-state="writing"] { --state: var(--accent); }
+.presence[data-state="tool"] { --state: var(--hot); }
+.presence[data-state="waiting"] { --state: var(--warn); }
+.ptabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--line); flex: none; }
+.ptabs button {
+  position: relative; border: 0; background: none; cursor: pointer; padding: 13px 8px 11px; color: var(--muted);
+  font-size: 12.5px; font-weight: 700; letter-spacing: 0.22em; border-bottom: 2px solid transparent;
+}
+.ptabs button + button { border-left: 1px solid var(--line); }
+.ptabs button:hover { color: var(--ink); }
+.ptabs button[aria-selected="true"] {
+  color: var(--accent); border-bottom-color: var(--accent); text-shadow: 0 0 10px var(--glow);
+  background: linear-gradient(0deg, var(--accent-soft), transparent);
+}
+.ptabs .tab-badge { position: static; display: inline-block; margin-left: 8px; box-shadow: 0 0 6px var(--hot); vertical-align: 1px; }
+.ppane { display: flex; flex-direction: column; gap: 10px; padding: 12px; min-height: 0; flex: 1; }
+.avatar-frame {
+  position: relative; flex: none; aspect-ratio: 4 / 3.4; max-height: 40vh; width: 100%; overflow: hidden;
+  border: 1px solid var(--line-bright); border-radius: 2px; background: var(--stage);
+  box-shadow: 0 0 16px -10px var(--state);
+  transition: box-shadow 0.4s;
+}
+.avatar-frame::after { /* glass: scanlines and a vignette over the avatar */
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, var(--stage-scan) 2px 3px),
+    radial-gradient(ellipse at center, transparent 55%, var(--stage-vignette));
+}
+.avatar-stage { position: absolute; inset: 0; --avatar: var(--state); }
+.avatar-stage > canvas, .avatar-stage > svg { display: block; width: 100%; height: 100%; }
+.avatar-pick {
+  position: absolute; top: 8px; left: 8px; z-index: 2; display: flex; align-items: center; gap: 6px;
+  background: var(--stage-chip); border: 1px solid var(--line-bright); padding: 2px 4px 2px 8px; font-size: 10.5px; font-weight: 700; color: var(--accent);
+}
+.avatar-pick select {
+  appearance: none; border: 0; background: transparent; color: var(--bright); font-size: 11px; font-weight: 700; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.1em; padding: 3px 18px 3px 2px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%), linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+  background-position: calc(100% - 9px) 55%, calc(100% - 4px) 55%; background-size: 5px 5px; background-repeat: no-repeat;
+}
+.avatar-pick select option { background: var(--raised); color: var(--ink); }
+/* No focus ring on the picker itself (the owner's call); keyboard focus lights its frame instead. */
+.avatar-pick select:focus, .avatar-pick select:focus-visible { outline: none; box-shadow: none; }
+.avatar-pick:has(select:focus-visible) { border-color: var(--accent); }
+.main-status { display: flex; align-items: center; gap: 12px; padding: 4px 2px 10px; border-bottom: 1px solid var(--line); flex: none; }
+.presence-line { flex: 1; min-width: 0; margin: 0; display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 12.5px; color: var(--state); transition: color 0.3s; }
+.presence-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presence-line i { width: 9px; height: 9px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; flex: none; }
+
+/* Signal bars: the main status and each sub-agent's link */
+.wave { display: inline-flex; align-items: center; gap: 2px; height: 26px; flex: none; }
+.wave i { width: 2px; height: 20%; background: var(--wave, var(--state)); border-radius: 1px; box-shadow: 0 0 4px var(--wave, var(--state)); opacity: 0.9; }
+.wave i:nth-child(3n) { height: 35%; } .wave i:nth-child(4n+1) { height: 50%; } .wave i:nth-child(6) { height: 70%; }
+
+.agents-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex: none; }
+.agents-head h2 { margin: 0; font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: 0.18em; }
+.agents-head span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
+.agents-head span.live { color: var(--ok); }
+.agents { position: relative; list-style: none; padding: 0; margin: 0; flex: 1; min-height: 60px; overflow-y: auto; display: grid; align-content: start; }
+/* The bus: a trace from the main avatar down through every agent. Packets move along it while agents work. */
+.agents::before {
+  content: ''; position: absolute; left: 18px; top: 0; bottom: 18px; width: 1px; background: var(--line-bright); opacity: 0.6;
+}
+.agents.active::before { background: repeating-linear-gradient(to bottom, var(--accent) 0 5px, transparent 5px 14px); opacity: 1; box-shadow: 0 0 6px var(--glow); }
+.agents:empty::before, .agents.none::before { display: none; }
+.agents-empty { color: var(--muted); font-size: 11.5px; padding: 6px 2px; line-height: 1.5; }
+.agent {
+  --agent: var(--accent);
+  position: relative; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 8px 2px; border-bottom: 1px solid var(--line);
+}
+.agent[data-state="starting"] { --agent: var(--think); }
+.agent[data-state="tool"] { --agent: var(--hot); }
+.agent[data-state="done"] { --agent: var(--ok); }
+.agent[data-state="failed"] { --agent: var(--bad); }
+.agent[data-state="stopped"] { --agent: var(--muted); }
+.agent-ring {
+  position: relative; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--paper);
+  border: 1.5px solid var(--agent); box-shadow: 0 0 10px -2px var(--agent), inset 0 0 8px -3px var(--agent);
+}
+.agent-ring svg { width: 17px; height: 17px; fill: none; stroke: var(--agent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.agent-ring::before, .agent-ring::after { content: ''; position: absolute; border-radius: 50%; pointer-events: none; }
+.agent-ring::before { inset: -5px; border: 1.5px solid transparent; border-top-color: var(--agent); border-right-color: var(--agent); opacity: 0; }
+.agent-ring::after { inset: -1px; border: 1px solid var(--agent); opacity: 0; }
+.agent-text { display: grid; min-width: 0; }
+.agent-name { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--bright); text-transform: uppercase; letter-spacing: 0.1em; }
+.agent-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-name i { width: 7px; height: 7px; border-radius: 50%; background: var(--agent); box-shadow: 0 0 6px var(--agent); flex: none; }
+.agent-task { font-size: 11.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-detail { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent .wave { --wave: var(--agent); height: 22px; }
+.agent[data-state="done"], .agent[data-state="stopped"], .agent[data-state="failed"] { opacity: 0.8; }
+.agent[data-state="done"] .wave i, .agent[data-state="stopped"] .wave i, .agent[data-state="failed"] .wave i { height: 2px; box-shadow: none; }
+
+.mini-log {
+  flex: none; border: 1px solid var(--line-bright); border-radius: 2px; background: var(--shade); padding: 8px 10px 6px;
+  font-size: 11px; line-height: 1.55; min-height: 92px;
+}
+.mini-log ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.mini-log li { display: flex; gap: 8px; min-width: 0; opacity: 0.75; }
+.mini-log li:last-child { opacity: 1; }
+.mini-log li span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.log-time { color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+.log-prompt { margin: 2px 0 0; color: var(--accent); }
+.caret { display: inline-block; width: 7px; height: 12px; margin-left: 4px; background: var(--accent); vertical-align: -2px; box-shadow: 0 0 6px var(--accent); }
+.k-chat { color: var(--ink); } .k-tool { color: var(--accent); } .k-agent { color: var(--think); }
+.k-prompt { color: var(--warn); } .k-error { color: var(--bad); } .k-system { color: var(--muted); }
+
+.log-tools { display: flex; align-items: center; gap: 8px; flex: none; }
+.log-filters { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.log-filters button {
+  border: 1px solid var(--line); background: none; border-radius: 2px; padding: 3px 7px; cursor: pointer; font-size: 10px; font-weight: 700; color: var(--muted);
+}
+.log-filters button:hover { color: var(--ink); border-color: var(--line-bright); }
+.log-filters button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.log-tools .text-btn { padding: 4px 8px; font-size: 10.5px; flex: none; }
+.log-list {
+  list-style: none; margin: 0; padding: 8px 10px; flex: 1; min-height: 0; overflow-y: auto; font-size: 11.5px; line-height: 1.5;
+  border: 1px solid var(--line-bright); border-radius: 2px; background: var(--shade);
+}
+.log-list li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 8px; padding: 3px 0; border-bottom: 1px solid rgb(29 84 118 / 0.25); }
+.log-kind { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding-top: 2px; min-width: 44px; }
+.log-text { overflow-wrap: anywhere; color: var(--ink); }
+.log-where { color: var(--muted); }
+.log-empty { color: var(--muted); display: block !important; border: 0 !important; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .presence .wave i { animation: bar 1.6s ease-in-out infinite; }
+  .presence[data-state="idle"] .main-wave i { animation-duration: 2.8s; }
+  .presence[data-state="writing"] .main-wave i, .presence[data-state="tool"] .main-wave i { animation-duration: 0.7s; }
+  .wave i:nth-child(2n) { animation-delay: -0.35s !important; }
+  .wave i:nth-child(3n) { animation-delay: -0.8s !important; }
+  .wave i:nth-child(5n) { animation-delay: -1.1s !important; }
+  .wave i:nth-child(7n) { animation-delay: -0.2s !important; }
+  .agent[data-state="tool"] .wave i { animation-duration: 0.55s; }
+  .agent[data-state="starting"] .wave i { animation: sweep 1.2s ease-in-out infinite; }
+  .agent[data-state="done"] .wave i, .agent[data-state="stopped"] .wave i, .agent[data-state="failed"] .wave i { animation: none; }
+  .agent[data-state="working"] .agent-ring::before, .agent[data-state="tool"] .agent-ring::before { opacity: 1; animation: spin 1.6s linear infinite; }
+  .agent[data-state="starting"] .agent-ring::before { opacity: 1; border-style: dashed; animation: spin 3s linear infinite; }
+  .agent[data-state="tool"] .agent-ring::after { animation: ping 1s ease-out infinite; }
+  .agent[data-state="tool"] .agent-ring::before { animation-duration: 0.8s; }
+  .agents.active::before { animation: bus 0.9s linear infinite; }
+  .caret { animation: blink 1.05s steps(1) infinite; }
+  .link-state[data-state="connecting"] i { animation: blink 0.8s steps(1) infinite; }
+  .tool-status.running::before { animation: blink 1s steps(1) infinite; }
+  .chat-state:not([data-state="idle"]) i { animation: pulse 1.4s ease-in-out infinite; }
+  .presence-line i { animation: pulse 2.4s ease-in-out infinite; }
+}
+@keyframes bar { 0%, 100% { transform: scaleY(0.5); } 50% { transform: scaleY(1.9); } }
+@keyframes sweep { 0%, 100% { transform: scaleY(0.3); opacity: 0.4; } 50% { transform: scaleY(1.4); opacity: 1; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ping { 0% { transform: scale(1); opacity: 0.9; } 100% { transform: scale(1.7); opacity: 0; } }
+@keyframes bus { to { background-position: 0 -14px; } }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes pulse { 50% { opacity: 0.35; } }

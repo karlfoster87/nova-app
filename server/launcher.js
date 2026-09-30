@@ -3,8 +3,8 @@
 // new brain folder. Any other exit ends the launcher with the same code, so NSSM or
 // systemd still see real crashes and handle them as before.
 //
-// Between restarts it also installs a staged Agent SDK update (see server/updates.js) or a
-// staged update of Nova itself (server/appupdate.js). This happens here because no Claude Code
+// Between restarts it also installs a staged Agent SDK update (see server/updates/sdk.js) or a
+// staged update of Nova itself (server/updates/app.js). This happens here because no Claude Code
 // process is running then, so Windows won't lock its files. After a Nova update it keeps the
 // means to undo it for a minute: if the new server stops in that time, the old code goes back.
 //
@@ -17,9 +17,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import util from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { npm, SDK_PACKAGE, VERSION_RE } from './npm.js';
+import { npm, SDK_PACKAGE, VERSION_RE } from './updates/npm.js';
+import { readJsonFile as readJson } from './core/files.js';
 
-const RESTART_CODE = 75; // must match server/index.js
+const RESTART_CODE = 75; // must match server/core/restart.js
 const serverFile = path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.js');
 const APP_ROOT = path.resolve(path.dirname(serverFile), '..');
 // Same rule as config.js. Not imported, so a broken config.json can't stop the launcher.
@@ -104,7 +105,6 @@ function start() {
   });
 }
 
-const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
 const git = (args) => new Promise((resolve, reject) => {
   execFile('git', args, { cwd: APP_ROOT, timeout: 120_000, windowsHide: true },
     (err, stdout, stderr) => (err ? reject(new Error(String(stderr || err.message).trim())) : resolve(String(stdout).trim())));
@@ -186,10 +186,7 @@ function cleanAppStaging(staged) {
   fs.rmSync(path.dirname(staged), { recursive: true, force: true });
 }
 
-function installed() {
-  try { return JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'), 'utf8')).version; }
-  catch { return null; }
-}
+const installed = () => readJson(path.join(APP_ROOT, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'))?.version ?? null;
 
 // Installs the version the server staged and tested. If that fails, puts package.json and
 // the lockfile back and reinstalls from them, so Nova comes back on the version it had.

@@ -1,0 +1,62 @@
+/* Colours, fonts and radii as custom properties, dark by default and light under data-scheme. */
+:root {
+  --void: #03060C;
+  --paper: #060B14;
+  --panel: #07101C;
+  --raised: #0B1726;
+  --raised-2: #10223A;
+  --ink: #D2EEF7;
+  --bright: #F2FCFF;
+  --muted: #6D8BA3;
+  --line: #14304A;
+  --line-bright: #1D5476;
+  --accent: #22D3EE;
+  --accent-ink: #02141A;
+  --accent-soft: rgb(34 211 238 / 0.10);
+  --glow: rgb(34 211 238 / 0.45);
+  --hot: #FF3EA5;
+  --hot-soft: rgb(255 62 165 / 0.12);
+  --think: #B18CFF;
+  --think-soft: rgb(177 140 255 / 0.12);
+  --warn: #FFB547;
+  --warn-soft: rgb(255 181 71 / 0.09);
+  --bad: #FF4D6D;
+  --bad-soft: rgb(255 77 109 / 0.10);
+  --ok: #3DFF9A;
+  --shade: rgb(0 0 0 / 0.28);
+  --note-yellow: #28240F;
+  --note-green: #0E281C;
+  --note-blue: #0D2133;
+  --note-pink: #2C0F22;
+  --note-purple: #1D1433;
+  --note-grey: #0B1726;
+  /* The dark note colours are too close to the panel at swatch size, so swatches get a
+     stronger version of each */
+  --swatch-yellow: #7A6414; --swatch-green: #19734A; --swatch-blue: #1C5F96; --swatch-pink: #8A1F63; --swatch-purple: #5A3AA6; --swatch-grey: #3A4E66;
+  --ui: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --display: "Orbitron", "JetBrains Mono", ui-monospace, sans-serif;
+  --r-sm: 3px;
+  --r-md: 5px;
+  --grid-line: rgb(34 211 238 / 0.035);
+  --scan: rgb(0 0 0 / 0.16);
+  --stage: #02050B;                     /* the avatar window */
+  --stage-scan: rgb(0 0 0 / 0.18);
+  --stage-vignette: rgb(0 0 0 / 0.55);
+  --stage-chip: rgb(2 6 12 / 0.78);
+  --frame-paper: #FFFFFF;               /* behind a rendered HTML page, which expects a browser's white */
+  color-scheme: dark;
+}
+:root[data-scheme="light"] {
+  --void: #C7D5DF; --paper: #E9F1F5; --panel: #F4F8FA; --raised: #FFFFFF; --raised-2: #E1EDF3;
+  --ink: #0B1E2B; --bright: #02111A; --muted: #4E6777; --line: #B8CCD8; --line-bright: #7BA6BE;
+  --accent: #0784A0; --accent-ink: #FFFFFF; --accent-soft: rgb(7 132 160 / 0.10); --glow: rgb(7 132 160 / 0.22);
+  --hot: #C2187A; --hot-soft: rgb(194 24 122 / 0.09); --think: #6B46C1; --think-soft: rgb(107 70 193 / 0.10);
+  --warn: #A45F00; --warn-soft: rgb(164 95 0 / 0.09); --bad: #C8243F; --bad-soft: rgb(200 36 63 / 0.08); --ok: #0C8F50;
+  --shade: rgb(10 40 60 / 0.05);
+  --note-yellow: #F4ECC8; --note-green: #DCEBD9; --note-blue: #D9E6EE; --note-pink: #F2DDE1; --note-purple: #E4DFF0; --note-grey: #FFFFFF;
+  --swatch-yellow: #E8D06A; --swatch-green: #9FCB97; --swatch-blue: #92BCDB; --swatch-pink: #E4A2B3; --swatch-purple: #B5A6E0; --swatch-grey: #FFFFFF;
+  --grid-line: rgb(7 132 160 / 0.05); --scan: transparent;
+  --stage: #EEF4F8; --stage-scan: rgb(20 60 90 / 0.035); --stage-vignette: rgb(110 140 170 / 0.22); --stage-chip: rgb(255 255 255 / 0.88);
+  color-scheme: light;
+}

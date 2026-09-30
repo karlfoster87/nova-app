@@ -1,0 +1,78 @@
+/* Narrow screens (drawers) and the installed desktop app's title bar. Last, so it overrides the rest. */
+/* ---- Narrow screens: presence and sidebar become drawers -------------- */
+@media (max-width: 1320px) {
+  .shell { grid-template-columns: 280px minmax(0, 1fr) 310px; } /* the sidebar keeps its width until it becomes a drawer */
+  .brand-tag { display: none; }
+}
+@media (max-width: 1080px) {
+  .shell { grid-template-columns: 280px minmax(0, 1fr); }
+  .appbar .presence-btn { display: inline-grid; }
+  .presence-btn svg { stroke: var(--accent); }
+  .presence {
+    position: fixed; top: 8px; right: 8px; bottom: 8px; width: min(360px, 90vw); z-index: 20;
+    transform: translateX(calc(100% + 24px)); transition: transform 0.2s ease; box-shadow: 0 0 0 100vmax transparent;
+  }
+  .presence.open { transform: none; box-shadow: 0 0 0 100vmax rgb(1 4 10 / 0.6), 0 0 30px -8px var(--glow); }
+}
+@media (max-width: 760px) {
+  .appbar { gap: 10px; padding: 4px 10px; }
+  .shell { grid-template-columns: 1fr; padding: 0 6px 6px; }
+  .menu-btn { display: inline-grid; }
+  .topbar .menu-btn { display: none; } /* the header bar's button opens the drawer */
+  .version, .slashes, .clock { display: none; }
+  .sys > * { border-left: 0; padding: 0 4px; }
+  .brand-name { font-size: 18px; }
+  .brand-mark { width: 24px; height: 24px; }
+  .usage { order: 5; width: 100%; margin: 0 0 4px; gap: 12px; }
+  .meter { grid-template-columns: auto 1fr; flex: 1; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; width: calc(100vw - 50px); z-index: 20; border-radius: 0;
+    transform: translateX(-105%); transition: transform 0.2s ease; box-shadow: 0 0 0 100vmax transparent;
+    padding-top: calc(12px + env(safe-area-inset-top));
+  }
+  .sidebar.open { transform: none; box-shadow: 0 0 0 100vmax rgb(1 4 10 / 0.6); }
+  /* Phone drawers use the whole screen but a 50px gutter, left open to tap out */
+  .presence {
+    top: 0; right: 0; bottom: 0; width: calc(100vw - 50px); border-radius: 0;
+    padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+  }
+  .topbar { padding: 8px 12px; min-height: 50px; }
+  .transcript { padding: 12px 12px 20px; }
+  .turn { grid-template-columns: 26px minmax(0, 1fr); gap: 0 10px; }
+  .turn-icon { width: 26px; height: 26px; }
+  .composer { padding: 8px 8px 10px; }
+  .attach-btn { margin-right: auto; }
+  .hint { display: none; } /* touch keyboards have their own send key */
+}
+
+/* ---- Desktop app title bar (Window Controls Overlay) -------------------
+   Installed as an app on a desktop browser that supports it, Nova hides the browser's title bar
+   (display_override in the manifest). The header bar then takes that strip: env(titlebar-area-*)
+   is the part the system's window controls leave free, and the bar drags the window like a
+   title bar, with its buttons and meters left clickable. The system keeps drawing its own
+   minimise, maximise and close buttons, so Nova adds none. Nothing here applies anywhere else,
+   phones included. */
+@media (display-mode: window-controls-overlay) {
+  .appbar {
+    margin-left: env(titlebar-area-x, 0px); width: env(titlebar-area-width, 100%);
+    min-height: env(titlebar-area-height, 33px); padding-top: 0; padding-bottom: 0; gap: 14px;
+    app-region: drag; -webkit-app-region: drag;
+  }
+  .appbar button, .appbar .usage, .appbar a, .appbar select, .appbar input { app-region: no-drag; -webkit-app-region: no-drag; }
+  .appbar .icon-btn { padding: 4px; }
+  .appbar .icon-btn svg { width: 18px; height: 18px; }
+  .brand { gap: 8px; }
+  .brand-mark { width: 20px; height: 20px; }
+  .brand-name { font-size: 16px; }
+  .brand-tag { font-size: 10.5px; }
+  .sys { font-size: 12px; }
+  .meter { padding: 2px 0; }
+  .slashes i { height: 12px; }
+}
+/* Drawers start under the title bar strip, clear of the system's window controls. */
+@media (display-mode: window-controls-overlay) and (max-width: 1080px) {
+  .presence { top: calc(env(titlebar-area-height, 0px) + 8px); }
+}
+@media (display-mode: window-controls-overlay) and (max-width: 760px) {
+  .sidebar, .presence { top: env(titlebar-area-height, 0px); }
+}

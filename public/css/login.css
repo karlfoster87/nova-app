@@ -1,0 +1,13 @@
+/* The sign-in page. */
+/* ---- Login ------------------------------------------------------------- */
+.login-body { display: grid; place-items: center; min-height: 100dvh; }
+.login { width: min(360px, 90vw); display: grid; justify-items: center; gap: 6px; padding: 30px 28px 26px; }
+.login .brand-mark { width: 64px; height: 64px; }
+.login h1 { margin: 10px 0 2px; font: 700 26px/1 var(--display); letter-spacing: 0.24em; text-transform: uppercase; color: var(--accent); text-shadow: 0 0 12px var(--glow); }
+.login .brand-tag { display: block; margin: 0 0 18px; font-size: 10.5px; }
+.login form { width: 100%; display: grid; gap: 12px; }
+.login label { display: grid; gap: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted); }
+.login input { border: 1px solid var(--line-bright); border-radius: var(--r-sm); background: var(--shade); padding: 9px 11px; font-size: 13.5px; color: var(--ink); text-transform: none; letter-spacing: 0; }
+.login input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 12px -3px var(--glow); }
+.login .error { color: var(--bad); min-height: 1.2em; margin: 0; font-size: 12px; }
+.login .send-btn { padding: 10px; }

@@ -6,10 +6,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { once } from 'node:events';
-import { q } from './db.js';
-import { config, DATA_DIR } from './config.js';
-import { UserError } from './errors.js';
+import { q } from '../core/db.js';
+import { config, DATA_DIR } from '../core/config.js';
+import { UserError } from '../core/errors.js';
+import { renamePath } from '../core/paths.js';
+import { sizeText, disposition, streamFile, receiveFile } from '../core/files.js';
 
 const TYPES = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
@@ -46,19 +47,8 @@ export async function saveUpload(profile, req, rawName) {
   const id = crypto.randomUUID();
   const dir = path.join(uploadsDir(profile), id);
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, name);
-  const out = fs.createWriteStream(file, { flags: 'wx' });
-  let size = 0;
-  try {
-    for await (const chunk of req) {
-      size += chunk.length;
-      if (size > limit) throw tooBig();
-      if (!out.write(chunk)) await once(out, 'drain');
-    }
-    out.end();
-    await once(out, 'finish');
-  } catch (err) {
-    out.destroy();
+  let size;
+  try { size = await receiveFile(req, path.join(dir, name), limit, tooBig); } catch (err) {
     fs.rmSync(dir, { recursive: true, force: true });
     throw err;
   }
@@ -87,14 +77,12 @@ export function openUpload(profile, id) {
   const file = fileOf(row);
   if (!fs.existsSync(file)) throw new UserError('That file is no longer on the server.', 404);
   const inline = INLINE_IMAGES.has(row.type);
-  const disposition = `${inline ? 'inline' : 'attachment'}; filename="${row.name.replace(/[^\x20-\x7e]|["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(row.name)}`;
   return {
-    headers: { 'Content-Type': inline ? row.type : 'application/octet-stream', 'Content-Length': fs.statSync(file).size, 'Content-Disposition': disposition, 'Cache-Control': 'private, max-age=3600' },
-    write: (res) => new Promise((resolve, reject) => fs.createReadStream(file).on('error', reject).pipe(res).on('finish', resolve).on('close', resolve))
+    headers: { 'Content-Type': inline ? row.type : 'application/octet-stream', 'Content-Length': fs.statSync(file).size,
+      'Content-Disposition': disposition(row.name, inline), 'Cache-Control': 'private, max-age=3600' },
+    write: streamFile(file)
   };
 }
-
-const sizeText = (b) => (b < 1024 ? `${b} ${b === 1 ? 'byte' : 'bytes'}` : b < 1048576 ? `${Math.round(b / 1024)} KB` : `${(b / 1048576).toFixed(1)} MB`);
 
 // Checks the ids a message wants to send: this profile's, not sent yet, within the limit.
 export function claimUploads(profile, ids) {
@@ -139,8 +127,7 @@ setInterval(sweepUploads, 3600 * 1000).unref();
 export function moveProfileUploads(oldName, newName) {
   const from = uploadsDir(oldName), to = uploadsDir(newName);
   if (!fs.existsSync(from) || from === to) return;
-  try {
-    if (from.toLowerCase() === to.toLowerCase()) { const temp = `${from}.renaming-${Date.now()}`; fs.renameSync(from, temp); fs.renameSync(temp, to); }
-    else if (!fs.existsSync(to)) fs.renameSync(from, to);
-  } catch (err) { console.error(`Couldn't move ${from} to ${to}:`, err.message); }
+  const caseOnly = from.toLowerCase() === to.toLowerCase();
+  try { if (caseOnly || !fs.existsSync(to)) renamePath(from, to); }
+  catch (err) { console.error(`Couldn't move ${from} to ${to}:`, err.message); }
 }

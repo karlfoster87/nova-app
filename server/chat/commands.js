@@ -3,8 +3,8 @@
 // them. An open chat is asked directly, since it knows skills it found while working. Otherwise
 // a short-lived Claude Code session with the chat's settings is asked and closed again. It never
 // receives a prompt, so it uses none of the plan's limits. Lists are kept briefly per profile.
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessionBase, existingRunner, terminalCommands } from './chat.js';
+import { sessionBase, existingRunner, terminalCommands } from './runner.js';
+import { idleSession } from '../claude/session.js';
 
 const TTL = 60 * 1000;
 const cache = new Map();   // profile -> { at, list }
@@ -31,13 +31,10 @@ function shape(commands) {
 }
 
 async function fromSession(profile) {
-  let stop;
-  const done = new Promise((resolve) => { stop = resolve; });
-  const q = query({ prompt: { async *[Symbol.asyncIterator]() { await done; } }, options: sessionBase(profile) });
-  (async () => { try { for await (const _ of q) {} } catch {} })(); // drain, so the process never stalls
+  const session = idleSession(sessionBase(profile));
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Claude Code didn\'t list its commands in time.')), 30_000).unref());
-  try { return await Promise.race([q.supportedCommands(), timeout]); }
-  finally { stop(); try { q.close(); } catch {} }
+  try { return await Promise.race([session.query.supportedCommands(), timeout]); }
+  finally { session.close(); }
 }
 
 // The commands for this profile, from its open chat when there is one.

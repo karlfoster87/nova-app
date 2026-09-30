@@ -1,12 +1,12 @@
 // Notes view: per-profile sticky notes with text, a colour from a fixed
 // palette, and a manual order.
 import crypto from 'node:crypto';
-import { q, transaction } from './db.js';
-import { UserError } from './errors.js';
-import { requireView } from './access.js';
+import { q, transaction, reorder } from '../core/db.js';
+import { UserError } from '../core/errors.js';
+import { requireView } from '../accounts/access.js';
 
-// The palette names; app.css maps each to light and dark colours.
-export const COLORS = ['yellow', 'green', 'blue', 'pink', 'purple', 'grey'];
+// The palette names; public/css/tokens.css gives each a light and a dark colour (--note-*).
+const COLORS = ['yellow', 'green', 'blue', 'pink', 'purple', 'grey'];
 
 function ownedNote(profile, id) {
   const row = id ? q.note.get(String(id)) : null;
@@ -58,12 +58,8 @@ export function updateNote(profile, id, body) {
 export function moveNote(profile, id, { beforeId = null } = {}) {
   requireView(profile, 'notes', 'edit');
   const row = ownedNote(profile, id);
-  transaction(() => {
-    const order = q.notes.all(profile).map((n) => n.id).filter((n) => n !== row.id);
-    const at = beforeId ? order.indexOf(String(beforeId)) : -1;
-    order.splice(at < 0 ? order.length : at, 0, row.id);
-    order.forEach((n, i) => q.setNotePosition.run(i, n, profile));
-  });
+  transaction(() => reorder(q.notes.all(profile).map((n) => n.id), row.id, beforeId,
+    (i, n) => q.setNotePosition.run(i, n, profile)));
   return listNotes(profile);
 }
 

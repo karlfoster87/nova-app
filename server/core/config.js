@@ -4,8 +4,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { fold } from './paths.js';
 
+// The Nova folder (package.json, server/, public/), and the data folder, which is relative to
+// the working folder unless NOVA_DATA_DIR says otherwise.
+export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DATA_DIR = path.resolve(process.env.NOVA_DATA_DIR || './data');
+export const VERSION = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'package.json'), 'utf8')).version; // shown in the header
 
 // Nova's own Claude Code folder: its sign-in and transcripts, apart from any
 // Claude Code the same OS user runs. Set on this process too, because in-process SDK
@@ -125,9 +131,7 @@ fs.mkdirSync(config.paths.brainDir, { recursive: true });
 // Windows, where paths ignore case. It is fixed for the life of the process: changing
 // the brain folder restarts Nova.
 export function brainKey(dir) {
-  let key = path.resolve(dir).split(path.sep).join('/').replace(/\/+$/, '');
-  if (process.platform === 'win32' || process.platform === 'darwin') key = key.toLowerCase();
-  return key;
+  return fold(path.resolve(dir).split(path.sep).join('/').replace(/\/+$/, ''));
 }
 export const BRAIN = brainKey(config.paths.brainDir);
 fs.mkdirSync(config.paths.profilesDir, { recursive: true });

@@ -1,0 +1,121 @@
+/* The Settings dialog, the restart notice, the profile switcher and profile pictures. */
+/* ---- Settings dialog --------------------------------------------------- */
+.settings {
+  border: 1px solid var(--line-bright); border-radius: var(--r-md); background: var(--paper); color: var(--ink); padding: 22px 24px; width: min(580px, 94vw);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5), 0 0 40px -12px var(--glow), inset 0 0 60px -40px var(--glow);
+}
+.settings::backdrop { background: rgb(1 4 10 / 0.72); backdrop-filter: blur(2px); }
+.settings h2 { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--accent); text-shadow: 0 0 10px var(--glow); letter-spacing: 0.14em; }
+.settings fieldset { border: 0; padding: 0; margin: 0 0 18px; }
+.settings legend { font-weight: 700; margin-bottom: 6px; color: var(--accent); font-size: 12px; }
+.settings label { display: block; margin: 6px 0; font-size: 12.5px; }
+.settings input[type=password], .settings input[type=text], .settings input:not([type]), .settings input[type=number], .settings input[type=date], .settings select, .settings textarea {
+  display: block; width: 100%; margin-top: 4px; border: 1px solid var(--line-bright); border-radius: var(--r-sm); background: var(--shade); padding: 7px 10px; font-size: 13px;
+}
+.settings input:focus, .settings select:focus, .settings textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 10px -3px var(--glow); }
+.settings select option { background: var(--raised); }
+.settings input[type=checkbox], .settings input[type=radio] { accent-color: var(--accent); }
+.settings { max-height: min(88dvh, 820px); overflow-y: auto; }
+.settings h3 { font-size: 12px; font-weight: 700; margin: 0; color: var(--bright); }
+.settings code { color: var(--accent); }
+.settings-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.settings-head h2 { margin: 0; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 0 0 18px; flex-wrap: wrap; }
+.tabs [role=tab] {
+  border: 0; background: none; padding: 8px 12px; cursor: pointer; color: var(--muted); font-size: 11.5px; font-weight: 700;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tabs [role=tab]:hover { color: var(--ink); }
+.tabs [role=tab][aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); text-shadow: 0 0 8px var(--glow); }
+.stack { display: grid; gap: 8px; margin: 0 0 24px; }
+.stack .row, .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.stack p { margin: 0; }
+#signinSteps { margin: 0; }
+#signinLink, #appRepoLink { color: var(--accent); text-underline-offset: 3px; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 14px; }
+fieldset.grid-2 legend { grid-column: 1 / -1; }
+.settings label.check { display: flex; gap: 8px; align-items: center; }
+.settings .grid-2 > .full { grid-column: 1 / -1; margin: 0; }
+.form-status { font-size: 12px; color: var(--ok); margin: 0; min-height: 1.2em; }
+.form-status.error { color: var(--bad); }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12.5px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; color: var(--accent); }
+.profile-rows { display: grid; gap: 8px; margin-bottom: 22px; }
+.profile-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--shade); padding: 8px 12px;
+}
+.profile-main { display: grid; min-width: 0; }
+.profile-main .muted { font-size: 11.5px; }
+.profile-edit { grid-column: 1 / -1; margin: 6px 0 2px; padding-top: 10px; border-top: 1px solid var(--line); }
+.badge { font-size: 10px; font-weight: 700; color: var(--accent); border: 1px solid var(--accent); border-radius: 2px; padding: 0 6px; margin-left: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+/* Always allowed rules: often long commands, so the rule gets the full width and is clamped. */
+.rule { display: grid; gap: 6px; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--shade); padding: 10px 12px; }
+.rule-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
+.rule-head .muted { font-size: 11.5px; }
+.rule-text {
+  margin: 0; padding: 6px 8px; border-radius: 2px; background: var(--panel); line-height: 1.5; color: var(--accent);
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 6em; overflow: hidden; /* 4 lines */
+}
+.rule-text.open { max-height: 40vh; overflow: auto; }
+.add-profile { border-top: 1px solid var(--line); padding-top: 16px; }
+
+/* Restart notice */
+.restarting { width: min(380px, 92vw); text-align: center; padding: 28px 24px; }
+.restarting[open] { display: grid; justify-items: center; gap: 4px; }
+.restarting h2 { margin: 10px 0 0; }
+.restarting p { color: var(--muted); margin: 0 0 6px; }
+
+/* Small ring mark: the restart notice */
+.field { position: relative; width: 72px; aspect-ratio: 1; display: grid; place-items: center; }
+.field span { position: absolute; border-radius: 50%; border: 1.5px solid var(--accent); box-shadow: 0 0 8px var(--glow); }
+.field span:nth-child(1) { width: 30%; height: 30%; background: var(--accent); }
+.field span:nth-child(2) { width: 64%; height: 64%; opacity: 0.55; }
+.field span:nth-child(3) { width: 98%; height: 98%; opacity: 0.3; }
+@media (prefers-reduced-motion: no-preference) {
+  .field span { animation: ripple 1.4s ease-out infinite; }
+  .field span:nth-child(2) { animation-delay: 0.15s; }
+  .field span:nth-child(3) { animation-delay: 0.3s; }
+}
+@keyframes ripple { 0% { transform: scale(0.86); } 60% { transform: scale(1.04); } 100% { transform: scale(1); } }
+
+/* Profile switcher: circles, then the chosen profile's password or PIN boxes */
+.switcher { width: min(420px, 94vw); }
+.switcher h2 { margin-bottom: 4px; }
+.profile-circles { list-style: none; margin: 18px 0 8px; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 14px; }
+.profile-circles .muted { text-align: center; }
+.profile-pick {
+  display: grid; justify-items: center; gap: 7px; width: 88px; padding: 6px 2px; cursor: pointer;
+  border: 0; background: none; color: var(--ink); border-radius: var(--r-sm); font: inherit;
+}
+.profile-pick-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.profile-circle {
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%; overflow: hidden; flex: none;
+  border: 1px solid var(--line-bright); background: var(--shade); color: var(--accent); font-size: 22px; font-weight: 600;
+}
+/* Profile pictures sit in the console's palette: partly desaturated here (the file is left
+   as it is), with the page-wide scanline over them like any other image. */
+.picture { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; filter: saturate(0.55); }
+.who-icon .picture { width: 32px; height: 32px; border: 1px solid var(--accent); box-shadow: 0 0 6px -1px var(--glow); }
+.picture-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.picture-row .profile-circle { width: 56px; height: 56px; font-size: 20px; }
+.profile-row.has-circle { grid-template-columns: auto minmax(0, 1fr) auto; }
+.profile-row > .profile-circle { width: 34px; height: 34px; font-size: 14px; }
+.profile-pick:hover .profile-circle, .profile-pick:focus-visible .profile-circle, .switch-target .profile-circle {
+  border-color: var(--accent); box-shadow: 0 0 14px -4px var(--glow);
+}
+.profile-pick:hover .profile-pick-name, .profile-pick:focus-visible .profile-pick-name { color: var(--accent); }
+.switch-auth { display: grid; justify-items: center; gap: 16px; margin: 18px 0 8px; }
+.switch-target { display: grid; justify-items: center; gap: 7px; max-width: 100%; overflow-wrap: anywhere; text-align: center; }
+#switchPassword { width: 100%; }
+.pin-boxes { display: flex; gap: 10px; }
+.switcher .pin-boxes input { width: 48px; height: 56px; margin: 0; padding: 0; text-align: center; font-size: 22px; } /* beats .settings input[type=password] */
+.settings .radio { display: inline-flex; gap: 6px; margin-right: 16px; }
+.muted, .account, .dirs { color: var(--muted); font-size: 12px; }
+.settings p, .settings label, .sidebar-toast, .profile-main { overflow-wrap: anywhere; } /* long folder paths and names */
+.toggles { display: grid; gap: 4px; }
+.toggles label { display: flex; gap: 8px; align-items: baseline; }
+.toggles small { color: var(--muted); }
+.settings-actions { display: flex; gap: 8px; align-items: center; }
+.spacer { flex: 1; }

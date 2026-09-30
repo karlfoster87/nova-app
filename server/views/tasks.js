@@ -3,11 +3,11 @@
 // parent goes. Overdue is worked out in the browser from its own date, so the server never
 // has to guess the user's time zone.
 import crypto from 'node:crypto';
-import { q, transaction } from './db.js';
-import { UserError } from './errors.js';
-import { requireView } from './access.js';
+import { q, transaction, reorder } from '../core/db.js';
+import { UserError } from '../core/errors.js';
+import { requireView } from '../accounts/access.js';
 
-export const STATES = ['waiting', 'in_progress', 'complete'];
+const STATES = ['waiting', 'in_progress', 'complete'];
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function ownedTask(profile, id) {
@@ -116,13 +116,11 @@ export function moveTask(profile, id, { parentId = null, day = null, beforeId = 
   }
   const newParent = parent?.id ?? null;
   const newDay = parent ? null : checkDay(day);
-  transaction(() => {
-    const siblings = q.taskSiblings.all(profile, newParent, newDay).map((s) => s.id).filter((s) => s !== row.id);
-    const at = beforeId ? siblings.indexOf(String(beforeId)) : -1;
-    siblings.splice(at < 0 ? siblings.length : at, 0, row.id);
-    q.placeTask.run(newParent, newDay, siblings.indexOf(row.id), Date.now(), row.id, profile);
-    siblings.forEach((s, i) => { if (s !== row.id) q.setTaskPosition.run(i, s, profile); });
-  });
+  const now = Date.now();
+  transaction(() => reorder(q.taskSiblings.all(profile, newParent, newDay).map((s) => s.id), row.id, beforeId, (i, s) => {
+    if (s === row.id) q.placeTask.run(newParent, newDay, i, now, row.id, profile);
+    else q.setTaskPosition.run(i, s, profile);
+  }));
   return shape(q.task.get(row.id));
 }
 

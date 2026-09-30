@@ -6,34 +6,28 @@
 // Tasks nest; only top-level tasks have a day. Drag a card onto another card's middle to
 // nest it, near its top or bottom edge to place it before or after, or onto a column to put
 // it at the end of that day. Every move also has a menu equivalent for keyboard and touch.
-import { h } from '/render.js';
-import { openMenu } from '/menu.js';
-import { confirmDialog, promptDialog } from '/dialog.js';
+import { h, svgIcon } from '../lib/dom.js';
+import { api } from '../lib/api.js';
+import { store } from '../lib/store.js';
+import { localDay as iso } from '../lib/format.js';
+import { openMenu } from '../lib/menu.js';
+import { confirmDialog, promptDialog } from '../lib/dialog.js';
 
 const STATES = [['waiting', 'Waiting'], ['in_progress', 'In progress'], ['complete', 'Complete']];
 const STATE_NAME = Object.fromEntries(STATES);
 const NEXT_STATE = { waiting: 'in_progress', in_progress: 'complete', complete: 'waiting' };
 const ICONS = { more: 'M5 12h.01M12 12h.01M19 12h.01', menu: 'M4 6h16M4 12h16M4 18h16', prev: 'M15 18l-6-6 6-6', next: 'M9 18l6-6-6-6' };
 const AHEAD = 3; // days after today that always show, even when empty
-function icon(name) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  p.setAttribute('d', ICONS[name]);
-  svg.append(p);
-  return svg;
-}
+const icon = (name) => svgIcon(ICONS[name]);
 
 // Dates are local calendar days as 'YYYY-MM-DD', so "today" and "overdue" follow this device's clock.
-const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const parseDay = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const todayIso = () => iso(new Date());
 const dayName = (s, opts = { weekday: 'short', day: 'numeric', month: 'short' }) => parseDay(s).toLocaleDateString(undefined, opts);
 
 export function init(ctx) {
-  const { side, main, store } = ctx;
+  const { side, main } = ctx;
   const canEdit = () => ctx.access() === 'edit';
   let tasks = new Map();       // id -> task
   let kids = new Map();        // parentId, or 'day:<day>' for top-level tasks -> [task] in order
@@ -43,15 +37,6 @@ export function init(ctx) {
   let refocus = null;          // a column's add box to focus again after a redraw
   let first = null;            // the day at the left of the window (or the next one shown after it)
   const added = new Set();     // later days brought in by stepping past the last column
-
-  async function api(method, url, body) {
-    const res = await fetch(url, { method, headers: { 'X-Nova-Tab': ctx.tabId, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined });
-    if (res.status === 401) { location.href = '/login'; throw new Error('Signed out.'); }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Request failed (${res.status}). Try again.`);
-    return data;
-  }
 
   // ---- Layout -------------------------------------------------------------
   const todayBtn = h('button', { type: 'button', class: 'text-btn' }, 'Today');

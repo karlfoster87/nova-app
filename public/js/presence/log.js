@@ -1,5 +1,5 @@
 // Activity log for this tab: what Claude, its tools and sub-agents did, prompts, errors and
-// connection changes. app.js writes entries from the events this profile's tabs receive;
+// connection changes. chat/activity.js writes entries from the events this profile's tabs receive;
 // the presence panel shows them (mini log and the Logs tab) via the 'nova:log' event.
 // Kept in sessionStorage, so it survives a reload but not closing the tab, and each tab
 // keeps its own copy rather than several tabs overwriting one list.

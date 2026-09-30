@@ -3,9 +3,10 @@
 // (or Move up / Move down in their menu), and a title search. Uncategorised chats get
 // their own group, which also appears as a drop target while dragging. A Recent section
 // pinned under the list shows the latest few chats wherever they're filed.
-import { h } from '/render.js';
-import { openMenu } from '/menu.js';
-import { confirmDialog } from '/dialog.js';
+import { h, svgIcon } from '../lib/dom.js';
+import { api } from '../lib/api.js';
+import { openMenu } from '../lib/menu.js';
+import { confirmDialog } from '../lib/dialog.js';
 
 const ICONS = {
   more: 'M5 12h.01M12 12h.01M19 12h.01',
@@ -15,26 +16,7 @@ const ICONS = {
   chat: 'M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 20 12Z'
 };
 const RECENT = 3;
-const icon = (name) => {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  if (name === 'folder') svg.setAttribute('class', 'folder');
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', ICONS[name]);
-  svg.append(path);
-  return svg;
-};
-
-async function api(method, url, body) {
-  const res = await fetch(url, {
-    method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined
-  });
-  if (res.status === 401) { location.href = '/login'; throw new Error('Signed out.'); }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status}). Try again.`);
-  return data;
-}
+const icon = (name) => svgIcon(ICONS[name], { class: name === 'folder' ? 'folder' : null });
 
 // How long ago, compactly: now, 5m, 3h, 2d, then the date.
 function ago(ms) {

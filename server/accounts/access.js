@@ -1,14 +1,14 @@
 // Views beside chats, and how much of each a profile may use. Chats are always
 // available. Every view's routes call requireView on the server; the UI only mirrors it.
-import { q } from './db.js';
-import { config } from './config.js';
-import { UserError } from './errors.js';
+import { q } from '../core/db.js';
+import { config } from '../core/config.js';
+import { UserError } from '../core/errors.js';
 
-export const LEVELS = ['none', 'read', 'edit'];
+const LEVELS = ['none', 'read', 'edit'];
 const RANK = { none: 0, read: 1, edit: 2 };
 
-// The views Nova has built, in sidebar order. A new view adds an entry here, a client
-// module in public/, and its routes guarded by requireView.
+// The views Nova has built, in sidebar order. A new view adds an entry here, a browser
+// module in public/js/views/ (listed in public/js/shell/views.js), and routes guarded by requireView.
 export const VIEWS = [
   { id: 'brain', label: 'Brain', noun: 'brain' },
   { id: 'tasks', label: 'Tasks', noun: 'task list' },

@@ -1,15 +1,16 @@
-// One ChatRunner per open chat. Each wraps a long-lived Agent SDK query in
-// streaming-input mode, so follow-up messages reuse the same Claude Code process.
+// One ChatRunner per open chat. Each wraps a long-lived Agent SDK query in streaming-input
+// mode, so follow-up messages reuse the same Claude Code process. The registry below tracks
+// every runner; chats.js decides when to start one.
 import crypto from 'node:crypto';
-import { query, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
-import path from 'node:path';
-import { config, agentEnv, profileDir, CLAUDE_DIR, OLD_CLAUDE_DIR } from './config.js';
-import { q } from './db.js';
-import { hub } from './hub.js';
-import { meta, modelInfo } from './meta.js';
+import fs from 'node:fs';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import { config, agentEnv, profileDir } from '../core/config.js';
+import { q } from '../core/db.js';
+import { hub } from '../core/hub.js';
+import { UserError } from '../core/errors.js';
+import { meta, modelInfo } from '../claude/meta.js';
 import { rememberableRules, isApproved, remember, sessionRules, folderPaths, folderFor, addFolder } from './permissions.js';
 import { uploadsDir } from './uploads.js';
-import fs from 'node:fs';
 
 // Message types forwarded to the browser. Everything else stays server-side.
 const FORWARD = new Set([
@@ -20,6 +21,7 @@ const FORWARD = new Set([
 // Permission modes offered in the UI. 'bypassPermissions' and 'dontAsk' are left out
 // on purpose: one skips every check, the other silently denies.
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'plan'];
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const TASK_DONE = new Set(['completed', 'failed', 'killed']);
 
 // Where a profile's Claude Code sessions run and what they load: the brain, the profile's notes,
@@ -40,6 +42,7 @@ export function sessionBase(profile) {
 // from the latest chat that started. The composer leaves them out.
 export const terminalCommands = new Set();
 
+// The prompt of a streaming-input query: messages pushed in as the user sends them.
 class InputQueue {
   constructor() { this.items = []; this.waiter = null; this.closed = false; }
   push(item) {
@@ -68,13 +71,12 @@ class ChatRunner {
     this.lastActive = Date.now();
     this.input = new InputQueue();
 
-    const ctx = profileDir(profile);
     const options = {
       ...sessionBase(profile),
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
         append: `You are running in the Nova console under the "${profile}" profile. ` +
-          `Notes specific to this profile live in ${ctx}; read them when context about the profile would help.`
+          `Notes specific to this profile live in ${profileDir(profile)}; read them when context about the profile would help.`
       },
       includePartialMessages: true,
       canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts)
@@ -101,6 +103,10 @@ class ChatRunner {
     this.state = state;
     this.emit({ t: 'state', state });
   }
+
+  // Would stopping the process now lose anything? Not while Claude is working, a prompt
+  // waits for an answer, or a sub-agent is still running.
+  get busy() { return this.state === 'running' || this.pending.size > 0 || this.tasks.size > 0; }
 
   async loop() {
     try {
@@ -258,55 +264,59 @@ class ChatRunner {
 
   async interrupt() { try { await this.query.interrupt(); } catch {} }
 
-  // Closes the process if nothing would be lost; the next send resumes the session.
+  // Closes the process if nothing would be lost; otherwise as soon as it's quiet. The next
+  // send resumes the session.
   closeIfQuiet() {
-    if (this.state === 'idle' && !this.pending.size && !this.tasks.size) this.close();
+    if (!this.busy) this.close();
     else this.stale = true;
   }
 
   close() { this.input.close(); try { this.query.close(); } catch {} }
 }
 
-const registry = new Map();
+// ---- Registry -----------------------------------------------------------------
 
-// Every chat lookup goes through here so a profile can never reach another profile's chat.
-export function ownedChat(profile, id) {
-  const row = q.chat.get(id);
-  return row && row.profile === profile ? row : null;
-}
+const registry = new Map(); // chatId -> ChatRunner
 
-export function createChat(profile, { model, effort, categoryId = null }) {
-  const id = crypto.randomUUID();
-  q.addChat.run(id, profile, null, model || null, effort || null, Date.now(), Date.now(), categoryId);
-  return id;
-}
-
-export function runnerFor(profile, id, { model, effort, mode }) {
-  const row = ownedChat(profile, id);
-  if (!row) return null;
-  let runner = registry.get(id);
-  // Model or effort changed: restart the process and resume the same session.
+// The chat's runner, started (or resumed) if it has none. row: the chat, already checked to
+// belong to its profile (chats.js ownedChat). A changed model or effort restarts an idle
+// process on the same session.
+export function runnerFor(row, { model, effort, mode }) {
+  let runner = registry.get(row.id);
   if (runner && (runner.model !== model || runner.effort !== effort) && runner.state !== 'running') {
     runner.close();
-    registry.delete(id);
+    registry.delete(row.id);
     runner = null;
   }
   if (!runner) {
     const hasHistory = row.title !== null;
-    runner = new ChatRunner({ id, profile, model, effort, mode: mode || row.permission_mode || undefined, isNew: !hasHistory });
-    registry.set(id, runner);
+    runner = new ChatRunner({ id: row.id, profile: row.profile, model, effort, mode: mode || row.permission_mode || undefined, isNew: !hasHistory });
+    registry.set(row.id, runner);
   }
   return runner;
 }
 
+export function existingRunner(profile, id) {
+  const r = registry.get(id);
+  return r && r.profile === profile ? r : null;
+}
+
+export const stateOf = (id) => registry.get(id)?.state || 'closed';
+export const runnersOf = (profile) => [...registry.values()].filter((r) => r.profile === profile);
+
 // Chats that would lose work if their process stopped now.
-export function busyRunners() {
-  return [...registry.values()].filter((r) => r.state === 'running' || r.pending.size || r.tasks.size);
+export const busyRunners = () => [...registry.values()].filter((r) => r.busy);
+
+// Refuses an action that would stop every chat (a restart, an update) while any is busy.
+// then: what to do once they're finished; when: added after "an answer", e.g. " after the test".
+export function busyError(then, when = '') {
+  const n = busyRunners().length;
+  if (!n) return null;
+  return new UserError(`${n === 1 ? 'A chat is' : `${n} chats are`} still working or waiting for an answer${when}. ` +
+    `Stop them or let them finish, then ${then}.`, 409);
 }
 
 export function closeAllRunners() { for (const r of registry.values()) r.close(); }
-
-export function runnersOf(profile) { return [...registry.values()].filter((r) => r.profile === profile); }
 
 // A profile's folders or approvals changed. Open chats pick that up at process start, so
 // restart each one now if it's idle, or as soon as it finishes what it's doing.
@@ -319,49 +329,8 @@ export function refreshAllRunners() {
   for (const r of registry.values()) r.closeIfQuiet();
 }
 
-export function existingRunner(profile, id) {
-  const r = registry.get(id);
-  return r && r.profile === profile ? r : null;
-}
-
-export async function history(profile, id) {
-  if (!ownedChat(profile, id)) return null;
-  try { return await getSessionMessages(id, { dir: config.paths.brainDir }); }
-  catch { return []; }
-}
-
-// Transcripts written before Nova had its own Claude folder are copied in, so
-// older chats keep their history. Only Nova's chats, never over a newer copy; the originals stay.
-export function adoptTranscripts() {
-  const from = path.join(OLD_CLAUDE_DIR, 'projects'), to = path.join(CLAUDE_DIR, 'projects');
-  let folders;
-  try { folders = fs.readdirSync(from, { withFileTypes: true }).filter((d) => d.isDirectory()); } catch { return; }
-  const ids = new Set(q.allChatIds.all().map((r) => r.id));
-  let copied = 0;
-  for (const { name: folder } of folders) {
-    let files;
-    try { files = fs.readdirSync(path.join(from, folder)); } catch { continue; }
-    for (const file of files) {
-      const id = file.endsWith('.jsonl') && file.slice(0, -6);
-      if (!id || !ids.has(id) || fs.existsSync(path.join(to, folder, file))) continue;
-      try {
-        fs.mkdirSync(path.join(to, folder), { recursive: true });
-        const side = path.join(from, folder, id); // sub-agent transcripts and tool results
-        if (fs.existsSync(side)) fs.cpSync(side, path.join(to, folder, id), { recursive: true, force: false });
-        fs.copyFileSync(path.join(from, folder, file), path.join(to, folder, file)); // last: its presence marks the chat as done
-        copied++;
-      } catch (err) { console.error(`Couldn't copy the transcript of chat ${id}:`, err.message); }
-    }
-  }
-  if (copied) console.log(`Copied ${copied} chat transcript${copied === 1 ? '' : 's'} into ${to}. The originals are still in ${from}.`);
-}
-
-export function stateOf(id) { return registry.get(id)?.state || 'closed'; }
-
 // Close processes that have sat idle, so concurrent chats don't pile up.
 setInterval(() => {
   const cutoff = Date.now() - config.chats.idleMinutes * 60 * 1000;
-  for (const r of registry.values()) {
-    if (r.state === 'idle' && r.lastActive < cutoff && r.pending.size === 0 && r.tasks.size === 0) r.close();
-  }
+  for (const r of registry.values()) if (!r.busy && r.state === 'idle' && r.lastActive < cutoff) r.close();
 }, 60 * 1000).unref();

@@ -3,16 +3,17 @@
 // shares a rule with every profile.
 import fs from 'node:fs';
 import path from 'node:path';
-import { q } from './db.js';
-import { config } from './config.js';
-import { UserError } from './errors.js';
-import { fold, within } from './paths.js';
+import { q } from '../core/db.js';
+import { config } from '../core/config.js';
+import { UserError } from '../core/errors.js';
+import { fold, within } from '../core/paths.js';
+import { replaceFile } from '../core/files.js';
 
 // ---- Approvals --------------------------------------------------------------
 
 // A rule as Claude Code writes it in settings files: Tool, or Tool(content) with any
 // backslash or parenthesis in the content escaped.
-export const ruleText = (tool, rule) => rule ? `${tool}(${rule.replace(/[\\()]/g, '\\$&')})` : tool;
+const ruleText = (tool, rule) => rule ? `${tool}(${rule.replace(/[\\()]/g, '\\$&')})` : tool;
 
 // What a permission request can be remembered as. Only when every suggestion Claude Code
 // made is an allow rule, so storing them covers exactly what it asked about and a later
@@ -46,7 +47,7 @@ export function forgetApproval(profile, tool, rule) {
 
 // Moves one of the profile's rules into <brainDir>/.claude/settings.local.json, which every
 // profile's chats load. Written atomically; refuses rather than overwrite a file it can't parse.
-export function shareApproval(profile, tool, rule) {
+export async function shareApproval(profile, tool, rule) {
   tool = String(tool); rule = String(rule || '');
   if (!q.approval.get(profile, tool, rule)) throw new UserError('That approval isn\'t stored any more.', 404);
   const dir = path.join(config.paths.brainDir, '.claude');
@@ -61,9 +62,7 @@ export function shareApproval(profile, tool, rule) {
   settings.permissions.allow ??= [];
   if (!settings.permissions.allow.includes(text)) settings.permissions.allow.push(text);
   fs.mkdirSync(dir, { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(settings, null, 2) + '\n');
-  fs.renameSync(temp, file);
+  await replaceFile(file, JSON.stringify(settings, null, 2) + '\n');
   q.deleteApproval.run(profile, tool, rule);
   console.log(`${profile} shared the rule ${text} with all profiles in ${file}.`);
   return { text, file };
@@ -75,7 +74,7 @@ export const listFolders = (profile) => q.folders.all(profile).map((f) => ({ pat
 export const folderPaths = (profile) => q.folders.all(profile).map((f) => f.path);
 
 // Checks a folder the service account can actually list, and returns its real spelling.
-export function checkFolder(profile, input) {
+function checkFolder(profile, input) {
   const raw = String(input || '').trim();
   const example = process.platform === 'win32' ? 'D:\\Projects or \\\\server\\share\\folder' : '/mnt/share/projects';
   if (!raw) throw new UserError('Enter the full path of a folder.');

@@ -3,9 +3,9 @@
 // the recovery path if every admin is locked out: `--admin` makes the profile an admin.
 // Profiles can otherwise be managed by an admin in Settings.
 import readline from 'node:readline';
-import { q } from '../server/db.js';
-import { hashSecret } from '../server/auth.js';
-import { profileDir } from '../server/config.js';
+import { q } from '../server/core/db.js';
+import { hashSecret } from '../server/accounts/auth.js';
+import { profileDir } from '../server/core/config.js';
 
 const name = process.argv[2];
 const makeAdmin = process.argv.includes('--admin');

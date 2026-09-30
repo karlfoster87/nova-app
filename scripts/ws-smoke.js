@@ -24,8 +24,8 @@ fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({
 
 // Profiles go straight into the throwaway database. db.js reads NOVA_DATA_DIR on import.
 process.env.NOVA_DATA_DIR = tmp;
-const { q, db } = await import('../server/db.js');
-const { hashSecret } = await import('../server/auth.js');
+const { q, db } = await import('../server/core/db.js');
+const { hashSecret } = await import('../server/accounts/auth.js');
 q.addProfile.run('smoke-a', hashSecret(PASSWORD), Date.now(), 'admin', null);
 q.addProfile.run('smoke-b', hashSecret(PASSWORD), Date.now(), 'user', null);
 q.addProfile.run('smoke-c', hashSecret(PASSWORD), Date.now(), 'user', null);
@@ -163,11 +163,21 @@ async function run() {
   const a = await signIn('smoke-a');
   const b = await signIn('smoke-b');
 
-  // The presence panel's and installed app's modules are app code: served to a session only.
-  for (const mod of ['/presence.js', '/avatars.js', '/log.js', '/pwa.js', '/commands.js']) {
-    check((await http('GET', mod)).status === 302, `${mod} redirects without a session`);
-    check((await http('GET', mod, { cookie: a })).status === 200, `${mod} is served to a session`);
+  // Every browser module is app code, served to a session only; the sign-in page's script and
+  // the stylesheets are public. Module paths can't climb out of public/js.
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
+    d.isDirectory() ? walk(path.join(dir, d.name)) : [path.join(dir, d.name)]);
+  const url = (file) => `/${path.relative('public', file).split(path.sep).join('/')}`;
+  const modules = walk(path.join('public', 'js')).filter((f) => f.endsWith('.js')).map(url).filter((m) => m !== '/js/login.js');
+  let modulesOk = true;
+  for (const mod of modules) {
+    if ((await http('GET', mod)).status !== 302 || (await http('GET', mod, { cookie: a })).status !== 200) { modulesOk = false; check(false, `${mod} is served to a session only`); }
   }
+  check(modulesOk && modules.length > 30, `all ${modules.length} browser modules are served to a session only`);
+  const assets = ['/js/login.js', ...walk(path.join('public', 'css')).map(url)];
+  check((await Promise.all(assets.map((p) => http('GET', p)))).every((r) => r.status === 200), 'the sign-in script and stylesheets are public');
+  check((await http('GET', '/js/..%2F..%2Fpackage.json', { cookie: a })).status === 404 && (await http('GET', '/js/lib/nothing.js', { cookie: a })).status === 404,
+    'the module route serves only modules that exist');
 
   // Browsers fetch the manifest and its icons without cookies, so they must be public.
   const manifest = await (await fetch(`${base}/manifest.webmanifest`)).json().catch(() => null);

@@ -2,8 +2,8 @@
 // In remote mode this sits behind Cloudflare Access; it is the second layer, not the only one.
 // A PIN only ever works for switching from a session that is already signed in.
 import crypto from 'node:crypto';
-import { q } from './db.js';
-import { config } from './config.js';
+import { q } from '../core/db.js';
+import { config } from '../core/config.js';
 
 const COOKIE = 'nova_session';
 const SCRYPT = { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -15,7 +15,6 @@ export function hashSecret(secret) {
   const hash = crypto.scryptSync(secret, salt, 64, SCRYPT);
   return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
 }
-export const hashPassword = hashSecret;
 
 export function verifySecret(secret, stored) {
   if (!stored) return false;
@@ -81,7 +80,7 @@ export function cookieHeader(token, clear = false) {
   return parts.join('; ');
 }
 
-export function tokenFrom(req) {
+function tokenFrom(req) {
   const m = (req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`));
   return m ? m[1] : null;
 }

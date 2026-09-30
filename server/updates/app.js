@@ -11,11 +11,13 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { config, DATA_DIR } from './config.js';
-import { busyRunners } from './chat.js';
-import { UserError } from './errors.js';
-import { APP_ROOT, newer, updateLock, busyError } from './updates.js';
+import { config, APP_ROOT, DATA_DIR } from '../core/config.js';
+import { readJsonFile as readJson } from '../core/files.js';
+import { UserError } from '../core/errors.js';
+import { busyRunners, busyError } from '../chat/runner.js';
 import { npm, SDK_PACKAGE } from './npm.js';
+import { updateLock, newer, checkTimer } from './shared.js';
+import { untar } from './untar.js';
 
 const APP_STAGING = path.join(DATA_DIR, 'app-staging');
 const STAGED = path.join(APP_STAGING, 'src');
@@ -27,9 +29,6 @@ const state = {
   local: null, checkedLocal: null, remote: null, relation: null, ahead: 0, behind: 0,
   checkedAt: null, checkError: null, step: null, error: null
 };
-let checkTimer = null;
-
-const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
 const short = (sha) => (sha ? sha.slice(0, 7) : '');
 const repo = () => String(config.updates.appRepo || '').trim();
 const branch = () => String(config.updates.appBranch || 'main').trim();
@@ -112,14 +111,9 @@ export async function checkApp() {
   state.checkedAt = Date.now();
 }
 
-// Runs on the Agent SDK's interval (updates.checkHours), re-armed after each check.
-export function scheduleAppChecks(firstDelay = 90_000) {
-  clearTimeout(checkTimer);
-  const hours = config.updates.checkHours;
-  if (!(hours > 0) || !repo()) return;
-  checkTimer = setTimeout(async () => { await checkApp(); scheduleAppChecks(hours * 3600_000); }, firstDelay);
-  checkTimer.unref();
-}
+// On the Agent SDK's interval (updates.checkHours), unless app updates are off.
+const schedule = checkTimer(checkApp, repo);
+export const scheduleAppChecks = (firstDelay = 90_000) => schedule(firstDelay);
 
 export async function appStatus() {
   if (!state.step && repo()) state.local = await readLocal(); // cheap, and shows edits made since the check
@@ -148,7 +142,7 @@ export function startAppUpdate(profile, commit, onReady) {
   if (state.relation !== 'behind' || state.remote?.commit !== commit) {
     throw new UserError('There\'s nothing newer on GitHub to install. Check for updates first.', 409);
   }
-  const busy = busyError('');
+  const busy = busyError('update');
   if (busy) throw busy;
   const target = state.remote, from = state.checkedLocal;
 
@@ -181,7 +175,7 @@ export function startAppUpdate(profile, commit, onReady) {
     }
     state.step = 'testing';
     await testStaged();
-    const busy = busyError(' after the test');
+    const busy = busyError('update', ' after the test');
     if (busy) throw new Error(`${busy.message} Nothing was changed.`);
     if (from.mode === 'git') await git(['fetch', '--quiet', `https://github.com/${repo()}.git`, branch()]); // the launcher fast-forwards to it
     removeNodeModules(STAGED); // the launcher installs into the app itself when the lockfile changed
@@ -231,35 +225,4 @@ function removeNodeModules(dir) {
 function cleanStaging() {
   removeNodeModules(STAGED);
   fs.rmSync(APP_STAGING, { recursive: true, force: true });
-}
-
-// A small reader for GitHub's tarballs: ustar entries, with pax ('x') and GNU ('L') long names.
-// The first path segment (the repo-commit folder) is dropped. Links aren't expected and are skipped.
-function untar(buf, dest) {
-  const root = path.resolve(dest);
-  const text = (a, b) => buf.toString('utf8', a, b).replace(/\0[\s\S]*$/, '');
-  let off = 0, longName = null;
-  while (off + 512 <= buf.length) {
-    if (buf.subarray(off, off + 512).every((b) => b === 0)) break;
-    const name = text(off, off + 100), prefix = text(off + 345, off + 500);
-    const mode = parseInt(text(off + 100, off + 108).trim() || '644', 8);
-    const size = parseInt(text(off + 124, off + 136).trim() || '0', 8);
-    const type = String.fromCharCode(buf[off + 156]);
-    const body = buf.subarray(off + 512, off + 512 + size);
-    off += 512 + Math.ceil(size / 512) * 512;
-    if (type === 'g') continue;
-    if (type === 'x') { longName = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(body.toString('utf8'))?.[1] ?? longName; continue; }
-    if (type === 'L') { longName = body.toString('utf8').replace(/\0[\s\S]*$/, ''); continue; }
-    const full = longName ?? (prefix ? `${prefix}/${name}` : name);
-    longName = null;
-    const rel = full.split('/').slice(1).join('/');
-    if (!rel) continue;
-    const target = path.resolve(root, rel);
-    if (!target.startsWith(root + path.sep)) throw new Error(`The download has an unsafe path (${full}). Nothing was changed.`);
-    if (type === '5') fs.mkdirSync(target, { recursive: true });
-    else if (type === '0' || type === '\0' || type === '7') {
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, body, { mode: mode & 0o777 });
-    }
-  }
 }

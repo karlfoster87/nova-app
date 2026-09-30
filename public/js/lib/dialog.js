@@ -1,13 +1,8 @@
 // Nova's own confirmation and input dialogs, instead of the browser's confirm() and
 // prompt(): styled like the rest of the app, with buttons that say what they do. Both are
 // native <dialog> modals, so Esc cancels and focus is trapped; focus returns to wherever it
-// was when the dialog closes. Built without render.js's h(), which imports this module.
-
-function el(tag, props = {}, ...children) {
-  const node = Object.assign(document.createElement(tag), props);
-  for (const c of children.flat()) if (c != null) node.append(c);
-  return node;
-}
+// was when the dialog closes. The restart screen and the settings dialog are fixed in index.html.
+import { h } from './dom.js';
 
 // Shows a dialog and resolves with the value given to dialog.finish(). The buttons finish
 // it directly rather than waiting for the dialog's close event, which the browser delivers
@@ -41,18 +36,13 @@ function show(dialog, focus, onOpen) {
  * delete anything. Otherwise the confirm button has the focus.
  */
 export async function confirmDialog({ title, message = '', confirm, cancel = 'Cancel', danger = false }) {
-  const yes = el('button', { type: 'button', className: danger ? 'danger-btn' : 'send-btn', textContent: confirm });
-  const no = el('button', { type: 'button', className: 'text-btn', textContent: cancel });
-  const heading = el('h2', { textContent: title });
-  heading.id = `confirm-${Math.random().toString(36).slice(2)}`;
-  const dialog = el('dialog', { className: 'settings small-dialog confirm-dialog' },
-    el('div', { className: 'stack' }, heading,
-      message ? el('p', { className: 'confirm-message', textContent: message }) : null,
-      el('div', { className: 'row' }, el('span', { className: 'spacer' }), no, yes)));
-  dialog.setAttribute('aria-labelledby', heading.id);
-  dialog.setAttribute('role', 'alertdialog');
-  yes.addEventListener('click', () => dialog.finish(true));
-  no.addEventListener('click', () => dialog.finish(false));
+  const yes = h('button', { type: 'button', class: danger ? 'danger-btn' : 'send-btn', onclick: () => dialog.finish(true) }, confirm);
+  const no = h('button', { type: 'button', class: 'text-btn', onclick: () => dialog.finish(false) }, cancel);
+  const heading = h('h2', { id: `confirm-${Math.random().toString(36).slice(2)}` }, title);
+  const dialog = h('dialog', { class: 'settings small-dialog confirm-dialog', role: 'alertdialog', 'aria-labelledby': heading.id },
+    h('div', { class: 'stack' }, heading,
+      message ? h('p', { class: 'confirm-message' }, message) : null,
+      h('div', { class: 'row' }, h('span', { class: 'spacer' }), no, yes)));
   return (await show(dialog, danger ? no : yes)) === true;
 }
 
@@ -62,14 +52,13 @@ export async function confirmDialog({ title, message = '', confirm, cancel = 'Ca
  *           submit?: string, maxLength?: number }} o
  */
 export function promptDialog({ title, label, value = '', type = 'text', multiline = false, submit = 'Save', maxLength = 4000 }) {
-  const field = multiline ? el('textarea', { rows: 6, maxLength }) : el('input', { type, required: type === 'date' });
+  const field = multiline ? h('textarea', { rows: 6, maxlength: maxLength }) : h('input', { type, required: type === 'date' });
   field.value = value;
-  const heading = el('h2', { textContent: title });
-  const form = el('form', { className: 'stack' }, heading, el('label', {}, `${label} `, field),
-    el('div', { className: 'row' }, el('span', { className: 'spacer' }),
-      el('button', { type: 'button', className: 'text-btn', textContent: 'Cancel', onclick: () => dialog.finish(null) }),
-      el('button', { type: 'submit', className: 'send-btn', textContent: submit })));
-  const dialog = el('dialog', { className: 'settings small-dialog' }, form);
+  const form = h('form', { class: 'stack' }, h('h2', {}, title), h('label', {}, `${label} `, field),
+    h('div', { class: 'row' }, h('span', { class: 'spacer' }),
+      h('button', { type: 'button', class: 'text-btn', onclick: () => dialog.finish(null) }, 'Cancel'),
+      h('button', { type: 'submit', class: 'send-btn' }, submit)));
+  const dialog = h('dialog', { class: 'settings small-dialog' }, form);
   form.addEventListener('submit', (e) => { e.preventDefault(); dialog.finish(field.value); });
   return show(dialog, field, () => { if (!multiline && type === 'text') field.select(); });
 }

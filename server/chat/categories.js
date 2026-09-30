@@ -1,10 +1,10 @@
 // Chat categories. Each profile has its own; a chat belongs to at most one, and
 // category_id = null means uncategorised. Every lookup checks the profile.
 import crypto from 'node:crypto';
-import { q, transaction } from './db.js';
-import { UserError } from './errors.js';
+import { q, transaction, reorder } from '../core/db.js';
+import { UserError } from '../core/errors.js';
 
-export function ownedCategory(profile, id) {
+function ownedCategory(profile, id) {
   const row = id ? q.category.get(id) : null;
   return row && row.profile === profile ? row : null;
 }
@@ -39,12 +39,8 @@ export function renameCategory(profile, id, name) {
 export function moveCategory(profile, id, { beforeId = null } = {}) {
   if (!ownedCategory(profile, id)) throw new UserError('Category not found.', 404);
   if (beforeId != null && (beforeId === id || !ownedCategory(profile, String(beforeId)))) throw new UserError('Category not found.', 404);
-  transaction(() => {
-    const order = listCategories(profile).map((c) => c.id).filter((c) => c !== id);
-    const at = beforeId ? order.indexOf(String(beforeId)) : -1;
-    order.splice(at < 0 ? order.length : at, 0, id);
-    order.forEach((c, i) => q.setCategoryPosition.run(i, c, profile));
-  });
+  transaction(() => reorder(listCategories(profile).map((c) => c.id), id, beforeId,
+    (i, c) => q.setCategoryPosition.run(i, c, profile)));
   return listCategories(profile);
 }
 

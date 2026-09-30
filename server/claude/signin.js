@@ -4,8 +4,8 @@
 // so Nova never sees a token.
 import { spawn, execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { agentEnv } from './config.js';
-import { UserError } from './errors.js';
+import { agentEnv } from '../core/config.js';
+import { UserError } from '../core/errors.js';
 
 const require = createRequire(import.meta.url);
 const METHODS = { claudeai: '--claudeai', console: '--console' };

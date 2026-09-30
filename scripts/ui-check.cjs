@@ -37,7 +37,7 @@ const VIEWPORTS = [
 
 async function fixture(page) {
   await page.evaluate(async () => {
-    const { Transcript } = await import('/render.js');
+    const { Transcript } = await import('/js/chat/transcript.js');
     const t = new Transcript('x', { onAnswer: () => {}, onChange: () => {} });
     t.addUser('I want to create a cyberpunk anime style image of a girl in a neon city at night.\nCan you suggest a good prompt and workflow for this?', [{ id: '11111111-1111-1111-1111-111111111111', name: 'reference-shot-with-a-long-file-name.png', size: 482113, type: 'image/png' }]);
     t.handleSdk({ type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'Check the brain for saved style notes first.' }, { type: 'tool_use', id: 'tu1', name: 'Grep', input: { pattern: 'cyberpunk', path: 'Projects/some/really/long/path/that/keeps/going/and/going/art/styles/' } }] } });

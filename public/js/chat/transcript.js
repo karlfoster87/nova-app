@@ -1,94 +1,13 @@
-// Turns Agent SDK messages (live stream or saved history) into transcript DOM.
-import { marked, Marked } from '/vendor/marked.js';
-import DOMPurify from '/vendor/purify.js';
-import { confirmDialog } from '/dialog.js';
+// The chat transcript: turns Agent SDK messages (the live stream or saved history) into DOM,
+// with tool cards, sub-agent tasks, and permission and question cards. One Transcript per chat;
+// chats.js feeds it server events and mounts the open one. It also tracks what Claude is doing
+// (activity, running and recently finished agents) for the presence panel.
+import { h, svgIcon } from '../lib/dom.js';
+import { renderMarkdown } from '../lib/markdown.js';
+import { fileChip } from '../lib/widgets.js';
+import { confirmDialog } from '../lib/dialog.js';
 
-marked.setOptions({ gfm: true, breaks: false });
-DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-  if (node.tagName === 'A') { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
-});
-
-const md = (text) => DOMPurify.sanitize(marked.parse(text || ''));
-
-// Obsidian-style links for the brain viewer: [[Note]], [[Note|shown text]], [[Note#Heading]],
-// [[#Heading]], and embeds ![[image.png]]. They become placeholders carrying the target in
-// data-wiki; the brain view asks the server where each target is and wires them up. Being a
-// marked extension, text inside code spans and code blocks is left alone.
-const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const wikiLink = {
-  name: 'wikiLink',
-  level: 'inline',
-  start: (src) => src.match(/!?\[\[/)?.index,
-  tokenizer(src) {
-    const m = /^(!?)\[\[([^[\]\n|]+?)(?:\|([^[\]\n]+?))?\]\]/.exec(src);
-    if (m) return { type: 'wikiLink', raw: m[0], embed: !!m[1], target: m[2].trim(), alias: m[3]?.trim() };
-  },
-  renderer(t) {
-    // Shown as Obsidian does: the alias, else "Note › Heading" (a block id ^abc is dropped).
-    const [note, ...rest] = t.target.split('#');
-    const heading = rest.join('#').replace(/^\^.*/, '');
-    const label = t.alias || [note, heading].filter(Boolean).join(' › ') || t.target;
-    return `<a class="wiki-link" href="#" data-wiki="${escapeHtml(t.target)}"${t.embed ? ' data-embed="1"' : ''}>${escapeHtml(label)}</a>`;
-  }
-};
-const wikiMarked = new Marked({ gfm: true, breaks: false });
-wikiMarked.use({ extensions: [wikiLink] });
-
-const breakMarked = new Marked({ gfm: true, breaks: true });
-
-// The same markdown pipeline for other views, so rendering never differs. wiki: also
-// understand Obsidian-style links (the brain viewer; chats don't). breaks: every line break
-// shows, for text typed like plain text (notes).
-export const renderMarkdown = (text, { wiki = false, breaks = false } = {}) =>
-  wiki ? DOMPurify.sanitize(wikiMarked.parse(text || ''))
-    : breaks ? DOMPurify.sanitize(breakMarked.parse(text || '')) : md(text);
-
-export function h(tag, attrs = {}, ...children) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (v == null || v === false) continue;
-    if (k === 'class') el.className = v;
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-    else el.setAttribute(k, v === true ? '' : v);
-  }
-  for (const c of children.flat()) if (c != null) el.append(c);
-  return el;
-}
-
-// A profile's circle: its picture if it has one, otherwise its first letter.
-// `stamp` is the picture's updated_at, which also makes a changed picture load again.
-export const pictureUrl = (name, stamp) => `/api/profiles/${encodeURIComponent(name)}/picture?v=${stamp}`;
-export function fillCircle(el, name, stamp) {
-  el.replaceChildren(stamp ? h('img', { class: 'picture', src: pictureUrl(name, stamp), alt: '' }) : name.charAt(0).toUpperCase());
-  return el;
-}
-export const profileCircle = (name, stamp) => fillCircle(h('span', { class: 'profile-circle', 'aria-hidden': 'true' }), name, stamp);
-
-export const fileSize = (b) => (b < 1024 ? `${b} ${b === 1 ? 'byte' : 'bytes'}` : b < 1048576 ? `${Math.round(b / 1024)} KB` : `${(b / 1048576).toFixed(1)} MB`);
-const INLINE_IMAGES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
-
-// One attached file as a capsule, in the composer and in sent messages. f: { id?, name,
-// size (bytes) or sizeText, type? }. href links it (images open, other files download);
-// progress (0 to 1) shows an upload under way; error replaces the size; onRemove adds ×.
-export function fileChip(f, { href, progress = null, error = null, onRemove = null } = {}) {
-  const ext = (/\.([a-z0-9]{1,5})$/i.exec(f.name)?.[1] || 'file').toUpperCase();
-  const image = INLINE_IMAGES.has(f.type);
-  const name = href
-    ? h('a', { class: 'file-name', href, title: f.name, target: image ? '_blank' : null, rel: image ? 'noopener' : null, download: image ? null : f.name }, f.name)
-    : h('span', { class: 'file-name', title: f.name }, f.name);
-  const detail = error || (progress != null ? `${Math.round(progress * 100)}%` : typeof f.size === 'number' ? fileSize(f.size) : f.sizeText || '');
-  const chip = h('li', { class: `file-chip${error ? ' error' : ''}${progress != null ? ' busy' : ''}` },
-    h('span', { class: 'file-ext', 'aria-hidden': 'true' }, ext), name, h('span', { class: 'file-size' }, detail));
-  if (progress != null) chip.style.setProperty('--progress', `${Math.round(progress * 100)}%`);
-  if (onRemove) {
-    const x = h('button', { type: 'button', class: 'file-remove', title: 'Remove', 'aria-label': `Remove ${f.name}` }, '×');
-    x.addEventListener('click', onRemove);
-    chip.append(x);
-  }
-  return chip;
-}
-
-// The manifest a message with attachments carries (server/uploads.js messageContent),
+// The manifest a message with attachments carries (server/chat/uploads.js messageContent),
 // turned back into files for capsules: "- name (size, type) [id]: path".
 function parseManifest(text) {
   return text.split('\n').map((line) => /^- (.+) \(([^,]+), ([^)]+)\) \[([0-9a-f-]{36})\]: /.exec(line))
@@ -102,18 +21,7 @@ const TURN_ICONS = {
   user: ['M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 20 12Z'],
   assistant: ['M12 2.5 20.2 7.2v9.6L12 21.5l-8.2-4.7V7.2Z', 'M12 7v10M7.7 9.5l8.6 5M7.7 14.5l8.6-5']
 };
-function turnIcon(kind) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('class', 'turn-icon');
-  svg.setAttribute('aria-hidden', 'true');
-  for (const d of TURN_ICONS[kind]) {
-    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    p.setAttribute('d', d);
-    svg.append(p);
-  }
-  return svg;
-}
+const turnIcon = (kind) => svgIcon(TURN_ICONS[kind], { class: 'turn-icon' });
 // A message's time: saved transcripts may carry an ISO timestamp; live ones are now.
 const whenOf = (m) => { const t = Date.parse(m?.timestamp || ''); return Number.isNaN(t) ? null : t; };
 const hhmm = (at) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -230,7 +138,7 @@ export class Transcript {
   renderContent(content, container) {
     for (const block of content || []) {
       if (block.type === 'text' && block.text?.trim()) {
-        const div = h('div', { class: 'prose' }); div.innerHTML = md(block.text); container.append(div);
+        const div = h('div', { class: 'prose' }); div.innerHTML = renderMarkdown(block.text); container.append(div);
       } else if (block.type === 'thinking' && block.thinking) {
         container.append(this.makeThinking(block.thinking).el);
       } else if (block.type === 'redacted_thinking') {
@@ -300,7 +208,7 @@ export class Transcript {
   scheduleMarkdown(b) {
     if (b.pending) return;
     b.pending = true;
-    requestAnimationFrame(() => { b.pending = false; b.el.innerHTML = md(b.buf); this.onChange(); });
+    requestAnimationFrame(() => { b.pending = false; b.el.innerHTML = renderMarkdown(b.buf); this.onChange(); });
   }
 
   // Final assistant message replaces whatever was streamed for it.

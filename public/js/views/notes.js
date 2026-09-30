@@ -2,9 +2,12 @@
 // Click a note to edit it in place; it saves as you type and when you leave it. Markdown in
 // a note renders through the transcript's pipeline when it isn't being edited. Active notes
 // come first and are counted; long-standing ones sit in their own section below, uncounted.
-import { h, renderMarkdown } from '/render.js';
-import { openMenu } from '/menu.js';
-import { confirmDialog } from '/dialog.js';
+import { h, svgIcon } from '../lib/dom.js';
+import { api } from '../lib/api.js';
+import { store } from '../lib/store.js';
+import { renderMarkdown } from '../lib/markdown.js';
+import { openMenu } from '../lib/menu.js';
+import { confirmDialog } from '../lib/dialog.js';
 
 const COLORS = [['yellow', 'Yellow'], ['green', 'Green'], ['blue', 'Blue'], ['pink', 'Pink'], ['purple', 'Purple'], ['grey', 'Grey']];
 const COLOR_NAME = Object.fromEntries(COLORS);
@@ -29,32 +32,15 @@ function noteMarkdown(text) {
     .join('');
 }
 
-function icon(name) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  p.setAttribute('d', ICONS[name]);
-  svg.append(p);
-  return svg;
-}
+const icon = (name) => svgIcon(ICONS[name]);
 
 export function init(ctx) {
-  const { side, main, store } = ctx;
+  const { side, main } = ctx;
   const canEdit = () => ctx.access() === 'edit';
   let notes = [];
   let filter = store.get('notes.color', null); // a colour, or null for every note
   let editing = null;   // { id, input, timer, fresh } while a note is open for editing
   let dragging = null, stale = false, loaded = false;
-
-  async function api(method, url, body) {
-    const res = await fetch(url, { method, headers: { 'X-Nova-Tab': ctx.tabId, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined });
-    if (res.status === 401) { location.href = '/login'; throw new Error('Signed out.'); }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Request failed (${res.status}). Try again.`);
-    return data;
-  }
 
   // ---- Layout -------------------------------------------------------------
   const count = h('span', { class: 'cat-count' });

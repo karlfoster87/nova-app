@@ -1,0 +1,117 @@
+/* Resets, the page background and scanline, layout, framed panels, the header bar and buttons. */
+
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line-bright) transparent; }
+html, body { height: 100%; margin: 0; }
+body {
+  background-color: var(--void);
+  background-image:
+    radial-gradient(ellipse at 50% -10%, var(--accent-soft), transparent 60%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px, 32px 32px;
+  color: var(--ink);
+  font: 14px/1.6 var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+/* A faint CRT scanline over everything; never catches the pointer. */
+body::after {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 100;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, var(--scan) 2px 3px);
+  mix-blend-mode: multiply;
+}
+::selection { background: rgb(34 211 238 / 0.3); color: var(--bright); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-soft); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+code, pre { font-family: var(--mono); font-size: 0.92em; }
+[hidden] { display: none !important; }
+
+/* Labels that read as console chrome: capitals come from CSS, the text stays sentence case. */
+.caps, .cat-label, .cat-toggle, .view-tabs button, .ptabs button, .agents-head h2, .chat-title, .settings h2, .settings legend,
+.settings h3, .tabs [role=tab], .brand-tag, .send-btn, .text-btn, .stop-btn, .danger-btn, .foot-btn, .turn-name, .menu-heading,
+.presence-line, .avatar-pick, .log-filters button, .chat-state, .chat-where, .tool-name, .task-col-head strong, .tasks-week,
+.note-long h3, .brain-side-head .cat-label, .meter > span:first-child, .link-state, .ask h3 {
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+
+/* ---- Layout ------------------------------------------------------------ */
+body:not(.login-body) {
+  display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.shell {
+  display: grid; grid-template-columns: 280px minmax(0, 1fr) 350px; gap: 10px; padding: 0 10px 10px; min-height: 0;
+}
+/* Framed panels with lit corner brackets, like a HUD */
+.frame {
+  position: relative; min-height: 0; background: var(--paper); border: 1px solid var(--line);
+  border-radius: var(--r-md); box-shadow: inset 0 0 50px -30px var(--glow), 0 0 22px -16px var(--glow);
+}
+.frame::before {
+  content: ''; position: absolute; inset: -1px; pointer-events: none; border-radius: inherit; z-index: 3;
+  --c: var(--accent);
+  background:
+    linear-gradient(var(--c), var(--c)) top left / 16px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) top left / 1px 16px no-repeat,
+    linear-gradient(var(--c), var(--c)) top right / 16px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) top right / 1px 16px no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom left / 16px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom left / 1px 16px no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom right / 16px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom right / 1px 16px no-repeat;
+  opacity: 0.75;
+}
+.main { display: grid; grid-template-rows: minmax(0, 1fr); background: var(--panel); overflow: hidden; }
+/* Each view owns a pane in the sidebar and one in the main column; only the active pair shows. */
+.view { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+.side-pane { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+
+/* ---- Header bar -------------------------------------------------------- */
+.appbar {
+  display: flex; align-items: center; gap: 18px; min-height: 54px; padding: 0 16px; flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark { width: 30px; height: 30px; fill: none; stroke: var(--accent); stroke-width: 1.6; filter: drop-shadow(0 0 5px var(--glow)); }
+.brand-mark circle:last-child { fill: var(--accent); stroke: none; }
+.brand-name {
+  font: 700 22px/1 var(--display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
+  text-shadow: 0 0 10px var(--glow), 0 0 22px var(--glow);
+}
+.brand-tag { color: var(--muted); font-size: 11.5px; letter-spacing: 0.3em; white-space: nowrap; }
+.brand-tag #brandProfile { color: var(--accent); }
+.usage { margin-left: auto; display: flex; gap: 16px; align-items: center; }
+.sys { display: flex; align-items: center; font-size: 12.5px; white-space: nowrap; }
+.sys > * { padding: 0 14px; border-left: 1px solid var(--line); }
+.sys > :first-child { border-left: 0; }
+.link-state { display: inline-flex; align-items: center; gap: 8px; color: var(--ok); font-weight: 700; }
+.link-state i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.link-state[data-state="connecting"] { color: var(--warn); }
+.link-state[data-state="offline"] { color: var(--bad); }
+.clock { color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: 0.08em; }
+.version { color: var(--muted); }
+.slashes { display: inline-flex; gap: 4px; }
+.slashes i { width: 5px; height: 16px; background: var(--accent); transform: skewX(-24deg); box-shadow: 0 0 8px var(--glow); }
+.slashes i:nth-child(2) { opacity: 0.7; } .slashes i:nth-child(3) { opacity: 0.4; }
+.appbar .presence-btn { display: none; }
+
+/* ---- Buttons ----------------------------------------------------------- */
+.icon-btn { border: 0; background: none; padding: 6px; border-radius: var(--r-sm); cursor: pointer; color: var(--muted); display: inline-grid; }
+.icon-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.icon-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.menu-btn { display: none; }
+.send-btn {
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); border-radius: var(--r-sm);
+  padding: 7px 16px; cursor: pointer; font-weight: 700; font-size: 12px; box-shadow: 0 0 14px -4px var(--glow);
+}
+.send-btn:hover:not(:disabled) { box-shadow: 0 0 18px -2px var(--glow); }
+.send-btn:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+.stop-btn, .text-btn {
+  border: 1px solid var(--line-bright); background: transparent; color: var(--ink); border-radius: var(--r-sm);
+  padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 500;
+}
+.text-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.text-btn:disabled { opacity: 0.45; cursor: default; }
+.stop-btn { border-color: var(--bad); color: var(--bad); }
+.stop-btn:hover { background: var(--bad-soft); box-shadow: 0 0 14px -4px var(--bad); }
+/* The confirm button of a destructive dialog */
+.danger-btn { border: 1px solid var(--bad); background: var(--bad); color: var(--accent-ink); border-radius: var(--r-sm); padding: 7px 16px; cursor: pointer; font-weight: 700; font-size: 12px; }

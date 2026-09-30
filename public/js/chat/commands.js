@@ -3,8 +3,8 @@
 // Code's. Typing more of the name narrows the list; a space, or anything that isn't part of a
 // name, closes it. A click or tap, or Up/Down then Enter or Tab, fills the command into the box,
 // ready for its arguments; it's sent like any other message. The server builds the list
-// (server/commands.js), from the open chat when there is one.
-import { h } from '/render.js';
+// (server/chat/commands.js), from the open chat when there is one.
+import { h } from '../lib/dom.js';
 
 const FRESH = 60 * 1000; // refetch after this, or when the open chat changes
 const GROUPS = { brain: 'Skills in this brain', claude: 'Claude Code' };

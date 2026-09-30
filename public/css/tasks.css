@@ -1,0 +1,118 @@
+/* The Tasks view (and the status line both views share): day columns, cards, nesting and dragging. */
+/* ---- Tasks and notes --------------------------------------------------- */
+.view-status { margin: 0; padding: 0 16px; font-size: 12px; color: var(--muted); min-height: 0; }
+.view-status:not(:empty) { padding: 8px 16px; border-top: 1px solid var(--line); }
+.view-status.error { color: var(--bad); }
+.tasks-week { margin: 0; font-size: 14px; font-weight: 700; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-shadow: 0 0 8px var(--glow); }
+.tasks-bar, .notes-bar { flex-wrap: nowrap; }
+.task-days { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
+.task-day {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; border: 0; background: none; cursor: pointer;
+  padding: 6px 10px; border-radius: var(--r-sm); color: var(--muted); font-size: 12.5px; text-align: left;
+}
+.task-day > span:first-child { display: inline-flex; align-items: center; gap: 8px; }
+.task-day:hover { background: var(--accent-soft); color: var(--ink); }
+.task-day.today, .task-day[aria-pressed="true"] { background: var(--accent-soft); color: var(--bright); box-shadow: inset 2px 0 0 var(--accent); }
+.task-day.overdue > span:first-child { color: var(--bad); }
+.task-filter { border: 0; margin: 4px 0 0; padding: 10px 8px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; font-size: 12.5px; }
+.task-filter legend { color: var(--accent); font-size: 11px; padding: 0; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.14em; font-weight: 700; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--line-bright); flex: none; vertical-align: -1px; margin-right: 8px; }
+.menu-item .swatch { margin-right: 8px; }
+.note-yellow { background: var(--note-yellow); }
+.note-green { background: var(--note-green); }
+.note-blue { background: var(--note-blue); }
+.note-pink { background: var(--note-pink); }
+.note-purple { background: var(--note-purple); }
+.note-grey { background: var(--note-grey); }
+.swatch.note-yellow { background: var(--swatch-yellow); }
+.swatch.note-green { background: var(--swatch-green); }
+.swatch.note-blue { background: var(--swatch-blue); }
+.swatch.note-pink { background: var(--swatch-pink); }
+.swatch.note-purple { background: var(--swatch-purple); }
+.swatch.note-grey { background: var(--swatch-grey); }
+
+/* Tasks: a window of whole day columns, two above 1440px wide and one below. tasks.js reads
+   --cols and steps the window a day at a time; nothing scrolls it by hand. */
+.task-stage { position: relative; display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; padding: 0 6px; }
+.task-board {
+  --cols: 1;
+  display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - (var(--cols) - 1) * 12px) / var(--cols));
+  grid-template-rows: minmax(0, 1fr); gap: 12px; overflow: hidden; align-items: start;
+  padding: 16px 10px; /* narrower than the gap, so no sliver of the next day shows; the stage adds the rest */
+}
+@media (min-width: 1441px) { .task-board { --cols: 2; } }
+.task-board.single { grid-auto-columns: 100%; } /* Unscheduled is one list, so it takes the full width */
+.task-col {
+  display: flex; flex-direction: column; min-height: 120px; max-height: 100%; min-width: 0; background: var(--paper);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.task-nav { display: flex; align-items: center; gap: 4px; flex: none; }
+.task-step:disabled { opacity: 0.35; cursor: default; background: none; color: var(--muted); }
+.task-step.overdue { color: var(--bad); }
+.task-step.overdue:hover { background: var(--bad-soft); }
+/* Edge hotspots, shown only while a task is dragged: hold it there to step a day */
+.task-hot {
+  position: absolute; top: 16px; bottom: 16px; width: 48px; z-index: 2; display: grid; place-items: center;
+  color: var(--accent); opacity: 0; pointer-events: none; transition: opacity 0.15s, background-color 0.15s;
+}
+.task-hot.prev { left: 0; background: linear-gradient(90deg, var(--void), transparent); box-shadow: inset 2px 0 0 var(--accent); }
+.task-hot.next { right: 0; background: linear-gradient(270deg, var(--void), transparent); box-shadow: inset -2px 0 0 var(--accent); }
+.task-hot svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; filter: drop-shadow(0 0 4px var(--glow)); }
+.task-stage.dragging .task-hot:not(.off) { opacity: 0.75; pointer-events: auto; }
+.task-stage.dragging .task-hot.hot { opacity: 1; background-color: var(--accent-soft); }
+.task-hot.hot svg { animation: hot-nudge 0.7s ease-in-out infinite; }
+.task-hot.prev { --nudge: -4px; }
+.task-hot.next { --nudge: 4px; }
+@keyframes hot-nudge { 50% { transform: translateX(var(--nudge)); } }
+@media (prefers-reduced-motion: reduce) { .task-hot.hot svg { animation: none; } }
+.task-col.today { border-color: var(--accent); box-shadow: 0 0 18px -8px var(--glow); }
+.task-col.overdue-col { border-color: var(--bad); }
+.task-col-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 10px 12px 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.task-col-head div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.task-col-head strong { font-size: 12.5px; color: var(--ink); }
+.task-col.today .task-col-head strong { color: var(--accent); text-shadow: 0 0 8px var(--glow); }
+.task-col-head small { color: var(--muted); width: 100%; font-size: 11px; }
+.task-col-head .badge { margin-left: 0; }
+.overdue-col .task-col-head strong { color: var(--bad); }
+.task-list { display: flex; flex-direction: column; gap: 6px; padding: 4px 8px 8px; min-height: 48px; overflow-y: auto; border-radius: var(--r-sm); }
+.task-list.drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.task-empty { color: var(--muted); font-size: 11.5px; margin: 4px; }
+.task-add { padding: 0 8px 10px; }
+.task-add input { width: 100%; border: 1px dashed var(--line-bright); background: transparent; border-radius: var(--r-sm); padding: 6px 9px; font-size: 12.5px; }
+.task-add input:focus { border-style: solid; border-color: var(--accent); background: var(--raised); outline: none; box-shadow: 0 0 10px -4px var(--glow); }
+.task { position: relative; background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 6px 6px 8px; cursor: grab; }
+.task:hover { border-color: var(--line-bright); }
+.task.overdue { border-left: 2px solid var(--bad); }
+.task.drag-source { opacity: 0.45; }
+.task.drop-inside > .task-row { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 2px; }
+.task.drop-before { box-shadow: 0 -2px 0 var(--accent), 0 -2px 8px var(--glow); }
+.task.drop-after { box-shadow: 0 2px 0 var(--accent), 0 2px 8px var(--glow); }
+/* The checkbox centres on the title's first line: both are sized from --task-line (a whole
+   pixel, so the offset never rounds differently between browsers), as is the menu button. */
+.task-row { --task-line: 20px; display: flex; align-items: flex-start; gap: 6px; }
+.task-state {
+  flex: none; width: 16px; height: 16px; margin-top: calc((var(--task-line) - 16px) / 2);
+  border-radius: 2px; border: 1.5px solid var(--muted); background: none; padding: 0; cursor: pointer;
+}
+.task-state:disabled { cursor: default; }
+.task-state.in_progress { border-color: var(--accent); background: linear-gradient(90deg, var(--accent) 50%, transparent 50%); box-shadow: 0 0 6px var(--glow); }
+.task-state.complete { border-color: var(--ok); background: var(--ok); box-shadow: inset 0 0 0 2px var(--raised), 0 0 6px var(--ok); }
+.task-title {
+  flex: 1; min-width: 0; border: 0; background: none; padding: 0; text-align: left; font-size: 12.5px; line-height: var(--task-line);
+  overflow-wrap: anywhere; cursor: text; color: var(--ink);
+}
+.task.complete > .task-row .task-title { color: var(--muted); text-decoration: line-through; }
+.task-row .inline-edit { flex: 1; margin: 0; }
+.task-more { padding: 2px; opacity: 0; }
+.task-more svg { width: 16px; height: 16px; stroke-width: 2.4; }
+.task:hover > .task-row .task-more, .task-more:focus-visible, .task-more[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .task-more { opacity: 1; } }
+.task-meta { display: flex; gap: 10px; margin: 2px 0 0 22px; font-size: 11px; color: var(--muted); }
+.task-due.overdue { color: var(--bad); }
+.task-note { margin: 4px 0 0 22px; font-size: 11.5px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.task-children { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 0 12px; padding-left: 8px; border-left: 1px solid var(--line-bright); }
+.task-children .task { background: var(--panel); }
+/* Tasks: the column a sidebar or Today click jumps to */
+.task-col.flash { box-shadow: 0 0 0 1px var(--accent), 0 0 20px -4px var(--glow); }
+.task-col { transition: box-shadow 0.3s; }
+.task-days + .task-day { margin-top: 6px; border-top: 1px solid var(--line); border-radius: 0; padding-top: 10px; }

@@ -1,15 +1,15 @@
 // Avatars for the presence panel. Each one is driven only by what the
 // panel hands it: the state (idle, thinking, writing, tool, waiting) and how many sub-agents
-// are running. Ripple and Rob draw on a canvas; Ghost is an SVG animated by app.css.
+// are running. Both draw on a canvas.
 // With reduced motion the canvas avatars draw one still frame per change, and none of them
 // draws while hidden (the Logs tab, a closed drawer, a background browser tab).
 
-// The picker's choices. Ghost is still here but not offered, so a browser that had chosen it
-// falls back to Ripple.
+// The picker's choices. An unknown id (such as a browser that had chosen the retired Ghost
+// placeholder) falls back to Ripple.
 export const AVATARS = [{ id: 'ripple', label: 'Ripple' }, { id: 'rob', label: 'Rob' }];
 
 export function mountAvatar(id, stage) {
-  return ({ rob, ghost }[id] || ripple)(stage);
+  return ({ rob }[id] || ripple)(stage);
 }
 
 const TAU = Math.PI * 2;
@@ -17,7 +17,7 @@ const WORDS = { idle: 'Standing by', thinking: 'Thinking', writing: 'Responding'
 
 // ---- Colours ------------------------------------------------------------------
 // The state colours are the theme's tokens, read once and again when the theme changes.
-// light: the page is in light mode (data-scheme on <html>, set by app.js), so draw dark on light.
+// light: the page is in light mode (data-scheme on <html>, set by shell/theme.js), so draw dark on light.
 const STATE_TOKENS = { idle: '--ok', thinking: '--think', writing: '--accent', tool: '--hot', waiting: '--warn' };
 function rgb(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
@@ -393,124 +393,4 @@ function rob(stage) {
     morph = s.still ? 1 : 0;
     vy -= (s.w / 2) * 1.3; // hop
   });
-}
-
-// ---- Ghost: an anime-style cyborg, drawn in SVG ---------------------------------------
-// The markup is built once from constants (no user data), and app.css animates it by
-// data-state: breathing, blinking, a swaying head and hair, talking while writing, glancing
-// while thinking, a glitch and scanning HUD while tools run, a head tilt while waiting.
-function seeded(seed) {
-  return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-}
-const f = (n) => Number(n.toFixed(1));
-
-function ghostEye(cx, cy, o, id) {
-  // o = -1 for the left eye (outer corner to the left), 1 for the right. Local x grows outwards.
-  const P = (x, y) => `${f(cx + o * x)},${f(cy + y)}`;
-  const white = `M${P(11, 0)}C${P(8, -7)} ${P(-5, -9)} ${P(-12, -4)}C${P(-10, 4)} ${P(-4, 7)} ${P(2, 7)}C${P(7, 6)} ${P(10, 4)} ${P(11, 0)}Z`;
-  const ix = f(cx - o * 1.2); // irises sit a touch inwards
-  return `<clipPath id="${id}"><path d="${white}"/></clipPath>
-    <g class="eye">
-      <path class="white" d="${white}"/>
-      <g clip-path="url(#${id})"><g class="iris-g">
-        <ellipse class="iris" cx="${ix}" cy="${f(cy + 0.6)}" rx="5.8" ry="7"/>
-        <ellipse class="pupil" cx="${ix}" cy="${f(cy + 1.2)}" rx="2.3" ry="3.5"/>
-        <circle class="spark" cx="${f(ix - 2.2)}" cy="${f(cy - 2.4)}" r="1.6"/>
-        <circle class="spark" cx="${f(ix + 1.8)}" cy="${f(cy + 3.4)}" r="0.8"/>
-      </g></g>
-      <path class="lash" d="M${P(13, -2)}C${P(9, -9.5)} ${P(-6, -12.5)} ${P(-14, -5)}L${P(-13, -3)}C${P(-6, -8.5)} ${P(7, -7.5)} ${P(11, 0)}ZM${P(13, -2)}L${P(18.5, -5.5)}L${P(12, 0.6)}Z"/>
-      <path class="line" d="M${P(8, 5.6)}C${P(3, 8.2)} ${P(-3, 8.2)} ${P(-8, 5)}" opacity="0.55"/>
-    </g>`;
-}
-
-function ghostMarkup() {
-  const rnd = seeded(9);
-  const near = [[0, 72, 36], [32, 104, 26], [54, 132, 20], [240, 64, 30], [266, 94, 34], [222, 124, 20]];
-  const far = [[8, 38, 22], [62, 92, 16], [212, 48, 18], [280, 26, 20], [110, 150, 14], [178, 146, 16]];
-  let windows = '';
-  for (const [x, y, wd] of near) {
-    for (let wy = y + 8; wy < 250; wy += 9) {
-      for (let wx = x + 4; wx < x + wd - 4; wx += 6) {
-        if (rnd() < 0.3) windows += `<rect class="win${rnd() < 0.35 ? ' c' : ''}" x="${wx}" y="${wy}" width="2.4" height="3.4"/>`;
-      }
-    }
-  }
-  let rain = '';
-  for (let c = 0; c < 16; c++) {
-    const x = f(rnd() * 300), y0 = f(rnd() * 40);
-    for (let k = -1; k < 7; k++) rain += `<path class="rain" d="M${x},${f(y0 + k * 40)}l-1.5,9"/>`;
-  }
-  const kana = ['ゴ', 'ー', 'ス', 'ト'].map((ch, i) => `<text class="kana" x="283" y="${24 + i * 14}" text-anchor="middle">${ch}</text>`).join('');
-  return `<svg class="ghost" viewBox="0 0 300 255" preserveAspectRatio="xMidYMid slice" data-state="idle">
-  <defs>
-    <linearGradient id="ghostSky" x1="0" y1="0" x2="0" y2="1"><stop class="sky0" offset="0" stop-color="#0D0730"/><stop class="sky1" offset="0.55" stop-color="#080B22"/><stop class="sky2" offset="1" stop-color="#02040B"/></linearGradient>
-    <radialGradient id="ghostBack" cx="50%" cy="46%" r="52%"><stop offset="0" stop-color="#FF3EA5" stop-opacity="0.22"/><stop offset="0.6" stop-color="#6D28D9" stop-opacity="0.08"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
-    <radialGradient id="ghostIris" cx="50%" cy="35%" r="65%"><stop offset="0" stop-color="#9FF7FF"/><stop offset="0.45" stop-color="#6D5BD0"/><stop offset="1" stop-color="#150F3D"/></radialGradient>
-    <linearGradient id="ghostHair" x1="0" y1="0" x2="0.3" y2="1"><stop class="hair0" offset="0" stop-color="#2B2066"/><stop class="hair1" offset="0.5" stop-color="#161139"/><stop class="hair2" offset="1" stop-color="#0A0820"/></linearGradient>
-    <linearGradient id="ghostFace" x1="0" y1="0" x2="1" y2="0"><stop class="face0" offset="0" stop-color="#2A3B66"/><stop class="face1" offset="0.5" stop-color="#1B2646"/><stop class="face2" offset="1" stop-color="#121935"/></linearGradient>
-  </defs>
-  <rect width="300" height="255" fill="url(#ghostSky)"/>
-  ${far.map(([x, y, wd]) => `<rect class="far" x="${x}" y="${y}" width="${wd}" height="${255 - y}" fill="#0B1233" opacity="0.8"/>`).join('')}
-  ${near.map(([x, y, wd]) => `<rect class="city" x="${x}" y="${y}" width="${wd}" height="${255 - y}"/>`).join('')}
-  ${windows}
-  <rect x="44" y="112" width="6" height="46" fill="none" stroke="#22D3EE" stroke-width="1.2" opacity="0.7"/>
-  <rect x="252" y="78" width="5" height="34" fill="none" stroke="#FF3EA5" stroke-width="1.2" opacity="0.7"/>
-  <circle cx="150" cy="118" r="130" fill="url(#ghostBack)"/>
-  <g class="rain-g">${rain}</g>
-  ${kana}
-  <g transform="translate(-22 -4) scale(1.15)"><g class="figure">
-    <g class="body">
-      <path class="coat" d="M36,255C44,214 90,192 128,184L150,207L172,184C210,192 256,214 264,255Z"/>
-      <path class="rim glow" d="M46,236C58,208 94,193 128,184" stroke-width="1.3"/>
-      <path d="M254,236C242,208 206,193 172,184" fill="none" stroke="#FF3EA5" stroke-width="1" opacity="0.6"/>
-      <path class="skin-shade" d="M139,146L137,189Q150,198 163,189L161,146Z"/>
-      <path class="shirt" d="M137,189L150,207L163,189Q150,198 137,189Z" fill="#04060E"/>
-      <path class="rim" d="M143,160V184M157,160V184" stroke-width="0.8" opacity="0.7"/>
-      <circle class="rim-fill" cx="145.5" cy="187" r="1.4"/><circle class="rim-fill" cx="154.5" cy="187" r="1.4"/>
-      <path class="coat" d="M150,207L125,166L114,177L128,187Z"/><path class="coat" d="M150,207L175,166L186,177L172,187Z"/>
-      <path class="line" d="M150,207L125,166L114,177M150,207L175,166L186,177" opacity="0.35"/>
-      <g class="head">
-        <path class="hair" d="M100,100C96,54 122,29 150,29C180,29 206,54 200,102C203,126 199,146 193,161C186,151 183,141 182,129L118,129C117,141 114,151 107,161C101,146 97,126 100,100Z"/>
-        <path fill="url(#ghostFace)" d="M117,86C116,112 121,134 136,150Q150,160 164,150C179,134 184,112 183,86C176,65 124,65 117,86Z"/>
-        <path class="skin-shade" d="M117,86C124,69 176,69 183,86L183,97C170,90 130,90 117,97Z" opacity="0.8"/>
-        <path class="rim glow" d="M118.5,98C119.5,119 125,136 137,149" stroke-width="1.2"/>
-        <path d="M181.5,98C180.5,119 175,136 163,149" fill="none" stroke="#FF3EA5" stroke-width="0.9" opacity="0.65"/>
-        <g class="brows">
-          <path class="line" d="M144,96.5C139,93 131,93 123.5,96.5" stroke-width="1.4"/>
-          <path class="line" d="M156,96.5C161,93 169,93 176.5,96.5" stroke-width="1.4"/>
-        </g>
-        ${ghostEye(133, 110, -1, 'ghostEyeL')}
-        ${ghostEye(167, 110, 1, 'ghostEyeR')}
-        <path class="line" d="M151,118C150.5,122 149.5,125 147.5,127.5L151.5,128" opacity="0.7"/>
-        <path class="line" d="M143.5,138.5Q150,141 156.5,138.5"/>
-        <ellipse class="mouth-open" cx="150" cy="140" rx="4" ry="2.6"/>
-        <path class="hair" d="M114,97C110,56 131,38 152,38C174,38 192,56 187,97L181,82L178,91L171,74L165,90L159,70L152,89L146,68L140,90L133,72L127,91L122,78L118,93Z"/>
-        <path class="hair-shine" d="M126,52C136,43 152,41 164,45M170,49C176,53 180,58 182,64M108,96C106,80 110,64 118,54M192,96C194,82 191,68 185,58"/>
-        <path class="rim" d="M104,102C100,70 116,40 146,33" stroke-width="1" opacity="0.6"/>
-        <path class="hair lock" d="M114,88C105,112 106,139 114,160L120,151L117,127L122,104Z"/>
-        <path class="hair lock r" d="M186,88C195,112 194,139 186,160L180,151L183,127L178,104Z"/>
-        <path class="rim" d="M112,108C109,126 110,142 114,156" stroke-width="0.8" opacity="0.5"/>
-      </g>
-    </g>
-  </g></g>
-  <g class="hud ring"><circle cx="226" cy="86" r="17" stroke-dasharray="3 3"/><circle cx="226" cy="86" r="11" stroke-dasharray="14 5"/></g>
-  <path class="hud" d="M209,86H196M243,86H252" opacity="0.6"/>
-  <rect class="scanline" x="0" y="0" width="300" height="2"/>
-  <text class="hud-text hud-state" x="12" y="245"></text>
-  <text class="hud-text hud-link" x="288" y="245" text-anchor="end"></text>
-</svg>`;
-}
-
-function ghost(stage) {
-  stage.innerHTML = ghostMarkup();
-  const svg = stage.firstElementChild;
-  const stateText = svg.querySelector('.hud-state'), linkText = svg.querySelector('.hud-link');
-  return {
-    set(state, { agents = 0 } = {}) {
-      svg.dataset.state = state;
-      stateText.textContent = `// ${WORDS[state] || ''}`;
-      linkText.textContent = agents ? `Link x${agents}` : 'Link idle';
-    },
-    destroy() { stage.replaceChildren(); }
-  };
 }

@@ -1,177 +1,127 @@
 # Nova
 
-A self-hosted chat console for Claude, built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk). Nova is a web app you install as a PWA. It gives Claude Code's agent a proper interface over a folder of markdown notes (your "brain"), with separate profiles, a brain viewer, tasks and notes, and no IDE needed.
+**A home for Claude Code's agent, in your browser.** Nova wraps the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) in a fast, installable web app built around a folder of markdown notes (your "brain"), so you get Claude Code's full power without living in a terminal or an IDE. It runs on your phone too.
 
-One codebase runs in two places:
+![Nova: a chat with Claude planning a sprint while two sub-agents work, shown in the presence panel](docs/screenshots/chat.png)
 
-- **Windows:** a background process on your own machine, reached on `127.0.0.1` and installed as an Edge app.
-- **Proxmox LXC:** an always-on service in an unprivileged container, reached remotely through Cloudflare Tunnel.
+Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.2.5. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-ai/claude-agent-sdk` 0.3.284.
+Version 0.3.0 · Node 22.13+ · four dependencies · no build step
+
+## Why Nova
+
+- **Claude Code, not a chatbot.** Every chat is a real Claude Code session working in your notes: reading, searching, writing files, running tools and delegating to sub-agents. You watch it all happen and approve what matters.
+- **Your notes are the context.** Point Nova at a folder of markdown (an Obsidian vault works). Claude reads it, follows its rules and skills, and keeps it up to date.
+- **One place for the work around the chat.** Browse and edit the brain, plan your days and keep sticky notes, right beside the conversation.
 
 ## Features
 
-**Chat**
-- Streaming replies with markdown, collapsible thinking, and tool calls shown with their results
-- Sub-agents nested under the call that started them, tracked until they finish, including background agents
-- Permission prompts: allow once, allow for this chat, always allow (remembered per profile), or deny. Claude's multiple-choice questions are answered inline
-- Per-chat model, effort and permission mode (ask first, auto-accept edits, auto, plan only), switched without restarting the chat
-- File and image attachments
-- Slash command suggestions: type `/` at the start of a message to pick from the brain's own skills and commands (its `.claude` folder) and Claude Code's built-in ones
-- Several chats at once, each with its own Claude Code process. Idle ones close after 30 minutes, and history and sessions resume after a restart
-- Chats organised into categories, with drag and drop, rename, move, delete and title search
+### A chat built for an agent
 
-**Claude**
-- Sign in to Claude from Settings with a Claude subscription or an Anthropic Console account. Claude Code's own login runs on the server, you approve in any browser, and it keeps the sign-in renewed. Nova never handles a token
-- Nova's sign-in is separate from any Claude Code you use yourself on the same machine, so the two can use different accounts
-- Plan usage bars (session and weekly) with reset times, for subscription sign-ins
-- Model list straight from the SDK, with hidden models and defaults set in Settings
-- Updates to Nova itself (from this GitHub repository) and to the Agent SDK, from Settings: checked on a timer, installed only when an admin asks, and tested before Nova restarts, with automatic rollback. A copy running newer code than GitHub is never overwritten
-- The brain's own `CLAUDE.md` and `.claude/` rules, skills and agents load into every chat, as they do in Claude Code. User-level settings and cloud memory are never loaded
+Replies stream in with markdown, collapsible thinking, and every tool call with its result. Sub-agents appear under the call that started them, and the presence panel shows what each one is doing, live. When Claude needs permission, you choose: allow once, for this chat, always, or deny. Pick the model, effort and permission mode per chat, attach files and images, and type `/` for your brain's own skills and commands.
 
-**Profiles**
-- Several profiles for one person (for example work, home, phone), each with its own chats, notes folder, tasks and notes
-- Admin and user roles, with at least one admin always kept. Access to each view (none, read, or read and edit) is set per profile
-- Profile switcher with profile pictures or initials. Switch with a password or a 4-digit PIN; the PIN is checked as you type the last digit
-- Extra folders outside the brain (local or network) allowed per profile
+### Your brain, in the browser
 
-**Views**
-- **Brain:** browse, read, edit and download the brain. Markdown with `[[wiki links]]` and embeds, images and video, HTML pages shown rendered (with a Source button for the code; scripts don't run), uploads, a trash folder, and git commits on save when the brain is a repository
-- **Tasks:** a board of day columns with nesting, states and drag and drop
-- **Notes:** coloured sticky notes, active or long-standing
+Read and edit the notes Claude works from. Markdown renders with `[[wiki links]]`, embeds, images and video; HTML reports render safely in a sandbox. Upload files and folders, and if the brain is a git repository, every save is committed.
 
-**Interface**
-- Neon console design, dark by default with a light option. Responsive down to phone width
-- Installed as a desktop app, Nova hides the browser's title bar and its header bar takes that space, beside the system's window buttons. Phones and browser tabs keep the usual layout
-- As an installed app: opening Nova again brings the open window forward, the app icon has shortcuts to a new chat, Tasks, Brain and Notes (right-click on the taskbar, or long-press on a phone), and shows how many chats are waiting for you. Notifications when Claude finishes or needs you while Nova isn't in front can be turned on per browser in Settings (desktop browsers; phones need a later update)
-- Presence panel with an animated avatar that follows what Claude is doing, sub-agent activity, and an activity log
+![The Brain view: a project note with properties, a sprint table and a checklist](docs/screenshots/brain.png)
 
-## Install on Windows
+### Tasks and notes, beside the chat
 
-This runs Nova as you, in the background, from sign-in. No admin rights are needed, and your files, mapped drives and network shares all work.
+A day-by-day task board with subtasks, states and drag and drop, and a wall of coloured sticky notes. Both are counted on their tabs, so you can see what's left today at a glance.
 
-1. Install [Node.js](https://nodejs.org) 22.13 or newer (24 LTS recommended), and Git if you're cloning.
-2. Get the code and install packages:
+<p>
+  <img src="docs/screenshots/tasks.png" alt="The Tasks board with today's and tomorrow's tasks, one with subtasks" width="49%">
+  <img src="docs/screenshots/notes.png" alt="Sticky notes in several colours, with a long-standing section" width="49%">
+</p>
+
+### Wherever you are
+
+Install Nova as an app on desktop or phone. It's fully responsive, dark or light, and keeps your chats in sync across every device. Run it remotely behind Cloudflare to reach it from anywhere.
+
+![Nova on a phone: a chat with agents running in dark mode, and sticky notes in light mode](docs/screenshots/mobile.png)
+
+### Also included
+
+- Several profiles (work, home, and so on), each with its own chats, notes folder, tasks and notes; admin and user roles, with per-view access
+- Profile switcher with pictures and a 4-digit PIN
+- Chat categories with drag and drop, search and a Recent list
+- Sign in to Claude from Settings with a Claude subscription or an Anthropic Console account; Nova never handles a token
+- Plan usage meters with reset times
+- Remembered approvals and extra folders per profile
+- Activity log and an animated avatar that follows what Claude is doing
+- Notifications and an app badge when Claude finishes or needs you
+- One-click updates for Nova and the Agent SDK, tested before they install, with automatic rollback
+- The brain's `CLAUDE.md` and `.claude/` rules, skills and agents load into every chat, just as in Claude Code
+
+## Get started
+
+You'll need a Claude subscription or an Anthropic Console account for Claude itself.
+
+### On Windows
+
+Nova runs quietly in the background as you, from sign-in. No admin rights needed.
+
+1. Install [Node.js](https://nodejs.org) (24 LTS recommended) and [Git](https://git-scm.com).
+2. Download Nova and its packages:
    ```powershell
-   git clone <this repository> C:\Nova
+   git clone https://github.com/karlfoster87/nova-app C:\Nova
    cd C:\Nova
    npm install
    ```
-3. Create your admin profile (it asks for a password of at least 12 characters):
+3. Create your profile (you'll be asked for a password of 12+ characters):
    ```powershell
-   npm run add-profile -- <name> --admin
+   npm run add-profile -- yourname --admin
    ```
-4. Set the brain folder. Step 3 created `data\config.json`. In it, set `paths.brainDir` to your notes folder, for example `{ "paths": { "brainDir": "C:/Notes/Brain" } }`. You can also change it later in Settings.
-5. Start Nova in the background, and at every sign-in:
+4. Tell Nova where your notes are: in `data\config.json`, set `"paths": { "brainDir": "C:/Notes/Brain" }`. You can change it later in Settings.
+5. Start Nova, now and at every sign-in:
    ```powershell
    powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1
    ```
-   This creates a scheduled task called Nova that runs with no window. It restarts the server within seconds after a crash, and checks every 5 minutes that Nova is running. Output goes to `data\logs\nova.log`. Use `-Stop` to stop it until your next sign-in, and `-Uninstall` to remove the autostart. Neither touches `data\`. If your organisation blocks scheduled tasks, the script falls back to a Startup folder shortcut.
-6. Open `http://127.0.0.1:8484` in Edge, sign in, and choose **Apps → Install this site as an app**. To open the window at sign-in too, go to `edge://apps`, open Nova's details and turn on **Start app when you sign in**.
-7. In Nova, open **Settings → Claude** and choose **Sign in with Claude**. Open the link, approve, and paste the code back into Nova.
+6. Open **http://127.0.0.1:8484** in Edge, sign in, and choose **Apps → Install this site as an app**.
+7. In Nova, go to **Settings → Claude → Sign in with Claude**, open the link it shows, approve, and paste the code back.
 
-If Nova has to run before anyone signs in, run it as a service instead, with [NSSM](https://nssm.cc) or WinSW, under your own account: `node.exe server\launcher.js`, with the Nova folder as the working directory. A service can't see mapped drive letters, so give extra folders as `\\server\share` paths.
+To stop Nova, run the same script with `-Stop`; `-Uninstall` removes the autostart. Logs are in `data\logs\nova.log`.
 
-## Install in a Proxmox LXC
+### In a Proxmox container (always on, reachable from anywhere)
 
-1. **Create the container.** Use an unprivileged Debian 12 container. It doesn't need nesting. Memory is a ceiling rather than a reservation, so 4 GB is plenty.
-2. **Mount the brain.** Bind-mount the brain, and any shares Nova needs, from the Proxmox host into the container, read-only where you can. In an unprivileged container, the host files must be owned by UID 100000 plus the container UID of the `nova` user (`id nova` shows it once setup has run).
-3. **Install Nova** as root inside the container. Nothing needs copying in first: the script downloads the latest Nova from GitHub itself.
+1. Create an unprivileged Debian 12 container (4 GB memory is plenty) and bind-mount your notes folder into it, for example at `/mnt/brain` (in an unprivileged container, the files must be owned by the mapped UID of the container's `nova` user, 100000 plus `id -u nova`).
+2. Inside the container, as root:
    ```bash
    apt-get update && apt-get install -y curl
    curl -fsSL https://raw.githubusercontent.com/karlfoster87/nova-app/main/scripts/setup-lxc.sh | bash -s -- --brain /mnt/brain
+   nova add-profile yourname --admin
    ```
-   It installs Node 24 (from NodeSource), rsync and git (git for the brain viewer's commits). It creates the user `nova` with no sudo and no login shell, and puts the app in `/opt/nova`. It records which commit that is, so Nova can update itself from GitHub from then on. It installs packages and writes `/opt/nova/data/config.json` (remote mode, your brain folder), then installs and starts the systemd unit `nova`. Add `--port <n>` for a port other than 8484. Running the same command again repairs the install without touching `/opt/nova/data`.
-4. **Create your admin profile:**
-   ```bash
-   nova add-profile <name> --admin
-   ```
-5. **Set up remote access.** Run `cloudflared` in the container (or a separate one) and route a hostname to `http://127.0.0.1:8484`. Put a Cloudflare Access application in front with a long session, around a month, so the installed PWA doesn't bounce to a login page. Access is the front door; Nova's own profile login is the second layer. WebSockets work through the tunnel with no extra settings.
-6. **Sign in to Claude.** Open Nova, sign in, and go to **Settings → Claude → Sign in with Claude**. Nothing needs to reach the container for this: you approve in your own browser and paste the code back.
-7. **Set the firewall** on the Proxmox host. Allow outbound to `anthropic.com`, `claude.com`, `claude.ai`, GitHub (`github.com`, `api.github.com`, `codeload.github.com`, `raw.githubusercontent.com`, for installing and updates), npm, `deb.nodesource.com`, the Debian mirrors, Cloudflare and your share hosts. Block the Proxmox host and the rest of the LAN.
+   This installs Node, creates a locked-down `nova` user and starts Nova as a service. Run it again any time to repair the install; your data is never touched.
+3. Put [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) in front of `http://127.0.0.1:8484`, with Cloudflare Access (a long session, around a month, suits the installed app).
+4. Open Nova, sign in, and connect Claude from **Settings → Claude**.
 
-From then on, Nova updates itself: **Settings → Updates** shows each new commit you push to `main`, and installs it when you choose **Update and restart**.
+For a tight setup, limit the container's outbound traffic to Anthropic and Claude, GitHub, npm, NodeSource, the Debian mirrors, Cloudflare and your file shares. The `nova` command also does `logs`, `status`, `restart`, and `claude-login` for terminal sign-in.
 
-The `nova` command runs host tasks as the right user:
+## Updates
 
-| Command | Does |
-|---|---|
-| `nova add-profile <name> [--admin]` | Create a profile, or reset its password. `--admin` is the way back in if every admin is locked out |
-| `nova claude-login [--console \| status \| logout]` | Sign in to Claude from the terminal, when Settings can't be reached (restart afterwards) |
-| `nova logs` | Follow the log |
-| `nova status \| restart \| stop \| start` | Control the service |
+**Settings → Updates** checks this repository and npm once a day and offers **Update and restart** when something's new. Each update is downloaded and tested first, and Nova rolls back by itself if anything goes wrong. It never overwrites a copy with changes of its own.
 
-## Updating
+## Good to know
 
-**From Settings (both installs).** **Settings → Updates** checks GitHub (`main`) and npm on a timer (every 24 hours by default), and shows **Update and restart** when there's something newer. Only an admin can install. An update is downloaded into a staging folder and tested there with its own syntax check and smoke test. Nova then restarts to install it, and goes back to the previous version by itself if installing fails or the new version stops within a minute of starting.
+- **Your data** lives in `data/` (or `/opt/nova/data`): `config.json`, the database, Nova's own Claude sign-in and chat transcripts, attachments and logs. Keep it private, backups included.
+- **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `updates.checkHours` (24, or 0 to stop checking).
+- **Security:** every request is checked against the signed-in profile, passwords and PINs are hashed with scrypt, sessions are HttpOnly and SameSite=Strict, a strict Content Security Policy is in place, and Claude's output is sanitised before it's shown. Claude acts as the user running Nova, so in a container, the container is the boundary.
 
-Nova never offers to replace code that's newer than GitHub's. A copy with uncommitted changes, commits that aren't pushed yet, or a history that has moved on from GitHub's says so and stays as it is. A copy that doesn't know its commit (copied rather than cloned) is only offered a higher version number. A git checkout is updated with a fast-forward merge, and any other copy has its code swapped, with a backup kept in `data/app-backup`. Your data folder is never touched either way.
+## Under the hood
 
-**By hand.**
-- **Windows:** stop Nova (`scripts\install-windows.ps1 -Stop`), run `git pull` and `npm install`, then run `scripts\install-windows.ps1` again.
-- **LXC:** run the install command from step 3 again. It downloads the latest `main` and replaces the code, but never touches `/opt/nova/data`, and keeps an Agent SDK you've updated from Settings rather than downgrade it.
-
-The Agent SDK updates the same way, from its own section in **Settings → Updates**.
-
-## Configuration
-
-Everything Nova keeps lives in the data folder (`NOVA_DATA_DIR`, by default `./data`, or `/opt/nova/data` in the LXC):
+Node.js with native ES modules in the browser: no framework, no bundler, and only four dependencies (the Agent SDK, `ws`, `marked`, `dompurify`). Data is in SQLite through `node:sqlite`.
 
 ```
-data/
-  config.json     settings, in sections: server, paths, claude, models, chats, uploads, views, brain, updates, security
-  nova.db         profiles, sign-ins, chat index, categories, approvals, folders, tasks, notes, pictures
-  claude/         Nova's own Claude Code folder: its Claude sign-in and chat transcripts
-  uploads/        chat attachments, per profile
-  logs/           nova.log, when started by the Windows task
+server/    the Node server: routes/, ws.js, and a folder per area (chat, brain, accounts, claude, views, updates)
+public/    the browser app: js/ (a folder per area) and css/ (one stylesheet per area)
+scripts/   install scripts, profile and sign-in tools, checks and smoke tests
 ```
-
-`claude/` holds a live Claude sign-in, so keep the data folder private, including in backups.
-
-Keys you're most likely to change in `config.json` (any key you leave out keeps its default):
-
-| Key | Default | |
-|---|---|---|
-| `server.mode` | `local` | `local` binds `127.0.0.1`. `remote` binds all interfaces and marks cookies Secure (for use behind a tunnel) |
-| `server.port` | `8484` | |
-| `paths.brainDir` | `data/brain` | Your brain folder. Can also be changed in Settings (admins) |
-| `chats.idleMinutes` | `30` | Idle chat processes close after this long |
-| `views.userDefaults` | brain read, tasks and notes edit | Access for user profiles an admin hasn't set |
-| `security.sessionDays` | `30` | Session length |
-| `updates.checkHours` | `24` | How often to check GitHub and npm for updates; `0` stops checking |
-| `updates.appRepo` | `karlfoster87/nova-app` | The GitHub repository Nova updates itself from (`owner/name`, public); `""` turns it off. `updates.appBranch` is the branch, `main` by default |
-
-Each profile's notes live in `<brain>/profiles/<name>/` and are added to that profile's chats.
-
-## Commands
 
 | Command | |
 |---|---|
-| `npm start` | Run Nova in the foreground (`server/launcher.js`, which restarts it when Settings asks) |
-| `npm run add-profile -- <name> [--admin]` | Create a profile or reset its password |
-| `npm run claude-login [-- --console \| status \| logout]` | Claude sign-in from the terminal |
-| `npm run check` | Syntax check |
-| `npm run smoke` | HTTP and WebSocket test of sign-in, profile isolation, access levels and routes. Uses its own server and throwaway data, and sends no prompt |
-
-`scripts/ui-check.cjs` screenshots the UI from desktop to phone widths with [Playwright](https://playwright.dev). Playwright isn't a dependency: install it in a scratch folder and run the script against a throwaway Nova, as its header explains.
-
-## Security
-
-- Every HTTP route and WebSocket message checks the profile; a chat ID alone never grants access. Roles are checked on the server, never inferred from the UI.
-- Passwords and PINs are hashed with scrypt, and sign-in and switching are throttled per profile. Sessions are HttpOnly, SameSite=Strict cookies.
-- State-changing requests and WebSocket upgrades must come from the same origin.
-- A strict Content Security Policy is in place. Model output is rendered with `marked` and sanitised with DOMPurify; everything else is inserted as text.
-- File routes resolve paths, following symlinks, and refuse anything outside their allowed folder.
-- Nova holds no Claude secret itself. Claude Code keeps the sign-in in `data/claude/`, and the browser only ever sees the account name.
-- Anything Claude does, it does as the user running Nova. On the LXC, the container, its firewall and its mounts are the real boundary.
-
-## Project layout
-
-```
-server/    Node server: HTTP API and WebSocket (index.js), one Agent SDK session per chat (chat.js),
-           Claude sign-in (signin.js), profiles, auth, views, SQLite (db.js), launcher.js
-public/    Browser app: native ES modules, no framework or build step
-scripts/   add-profile, claude-login, install-windows.ps1, setup-lxc.sh, smoke tests
-```
-
-There's no build step and no framework. The only dependencies are the Agent SDK, `ws`, `marked` and `dompurify`.
+| `npm start` | Run in the foreground |
+| `npm run add-profile -- <name> [--admin]` | Add a profile or reset a password |
+| `npm run claude-login` | Sign in to Claude from the terminal |
+| `npm run check` | Syntax and import check |
+| `npm run smoke` | End-to-end test on throwaway data (sends no prompts) |

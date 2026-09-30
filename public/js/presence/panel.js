@@ -1,21 +1,17 @@
 // The right-hand panel: the avatar, Claude's status, sub-agents with their link
 // activity, a mini log, and the full log in its own tab. It learns about the app only from
 // the 'nova:presence' and 'nova:log' window events, and never reaches into the transcript.
-import { AVATARS, mountAvatar } from '/avatars.js';
-import { log, logEntries, clearLog, clockTime, KINDS } from '/log.js';
+import { $, h, svgIcon } from '../lib/dom.js';
+import { store } from '../lib/store.js';
+import { AVATARS, mountAvatar } from './avatars.js';
+import { log, logEntries, clearLog, clockTime, KINDS } from './log.js';
 
-const $ = (id) => document.getElementById(id);
 const panel = $('presence');
 const stage = $('avatarStage');
 const picker = $('avatarSelect');
 const agentsEl = $('agents');
 const logList = $('logList');
 const badge = $('logBadge');
-
-const store = {
-  get: (k, d) => { try { return JSON.parse(localStorage.getItem(`nova.${k}`)) ?? d; } catch { return d; } },
-  set: (k, v) => { try { localStorage.setItem(`nova.${k}`, JSON.stringify(v)); } catch {} }
-};
 
 let now = { state: 'idle', label: 'Ready', agents: [], recent: [] };
 
@@ -78,16 +74,7 @@ const AGENT_ICONS = [
   [/.*/, 'M12 2.5 20.2 7.2v9.6L12 21.5l-8.2-4.7V7.2ZM12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z']
 ];
 const STATE_TEXT = { starting: 'Starting', working: 'Working', tool: 'Using a tool', done: 'Finished', failed: 'Failed', stopped: 'Stopped' };
-const svgPath = (d) => {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  p.setAttribute('d', d);
-  svg.append(p);
-  return svg;
-};
-const el = (tag, cls, ...kids) => { const n = document.createElement(tag); if (cls) n.className = cls; n.append(...kids); return n; };
+const el = (tag, cls, ...kids) => h(tag, { class: cls }, ...kids);
 
 function elapsed(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -97,7 +84,7 @@ function elapsed(ms) {
 function agentRow(a) {
   const li = el('li', 'agent');
   li.dataset.id = a.id;
-  const ring = el('span', 'agent-ring', svgPath(AGENT_ICONS.find(([re]) => re.test(a.name))[1]));
+  const ring = el('span', 'agent-ring', svgIcon(AGENT_ICONS.find(([re]) => re.test(a.name))[1]));
   ring.setAttribute('aria-hidden', 'true');
   const name = el('span', 'agent-name', el('i'), el('span'));
   const wave = el('span', 'wave', ...Array.from({ length: 9 }, () => el('i')));
