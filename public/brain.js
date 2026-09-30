@@ -40,6 +40,10 @@ async function api(method, url, body) {
 }
 
 const query = (p) => `path=${encodeURIComponent(p)}`;
+// The page route is path-shaped so an HTML file's relative links and images find its neighbours.
+// The token stands in for the session cookie, which the sandboxed frame's requests don't carry.
+const pageUrl = (token, p) => `/api/brain/page/${token}/${p.split('/').map(encodeURIComponent).join('/')}`;
+const isText = (kind) => kind === 'markdown' || kind === 'text' || kind === 'html';
 const parentOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 const lf = (text) => text.replace(/\r\n?/g, '\n'); // a textarea only ever gives back \n
 function sizeText(bytes) {
@@ -108,6 +112,7 @@ export function init(ctx) {
   let opening = null;     // the path being fetched, so a slow response can't replace a newer pick
   let started = false;
   let rootCanUpload = false; // may this profile upload into the brain folder's top level
+  let htmlSource = store.get('brain.htmlSource', false); // HTML files show as source, not rendered
 
   // ---- Layout -------------------------------------------------------------
   const tree = h('div', { class: 'brain-tree', role: 'tree', 'aria-label': 'Brain files' });
@@ -525,7 +530,11 @@ export function init(ctx) {
       kids.push(h('button', { type: 'button', class: 'text-btn', onclick: cancelEdit }, 'Cancel'));
       kids.push(h('button', { type: 'button', class: 'send-btn', disabled: !dirty() || saving, onclick: save }, saving ? 'Saving…' : 'Save'));
     } else if (file) {
-      const editable = (file.kind === 'markdown' || file.kind === 'text') && !file.readOnly;
+      const editable = isText(file.kind) && !file.readOnly;
+      if (file.kind === 'html') {
+        kids.push(h('button', { type: 'button', class: 'text-btn', 'aria-pressed': String(htmlSource),
+          title: htmlSource ? 'Show the page as a browser would' : 'Show the HTML source', onclick: toggleSource }, htmlSource ? 'Rendered' : 'Source'));
+      }
       if (editable) kids.push(h('button', { type: 'button', class: 'text-btn', onclick: startEdit }, 'Edit'));
       kids.push(h('a', { class: 'text-btn', href: `/api/brain/download?${query(file.path)}`, download: file.name }, 'Download'));
       if (file.canDelete) kids.push(h('button', { type: 'button', class: 'stop-btn', onclick: () => remove(file.path, false) }, 'Delete'));
@@ -537,13 +546,14 @@ export function init(ctx) {
     renderCrumbs();
     renderActions();
     doc.classList.toggle('editing', !!editor);
+    doc.classList.toggle('framed', !editor && file?.kind === 'html' && !htmlSource);
     if (!file) {
       doc.replaceChildren(h('div', { class: 'empty' }, h('h2', {}, 'Your brain folder'),
-        h('p', {}, ctx.access() === 'edit' ? 'Pick a file from the list to read it. Markdown and text files can be edited here.' : 'Pick a file from the list to read it.')));
+        h('p', {}, ctx.access() === 'edit' ? 'Pick a file from the list to read it. Markdown, text and HTML files can be edited here.' : 'Pick a file from the list to read it.')));
       return;
     }
     if (editor) { doc.replaceChildren(editor); return; }
-    const note = file.readOnly && (file.kind === 'markdown' || file.kind === 'text') ? h('p', { class: 'brain-readonly' }, READ_ONLY[file.readOnly]) : null;
+    const note = file.readOnly && isText(file.kind) ? h('p', { class: 'brain-readonly' }, READ_ONLY[file.readOnly]) : null;
     if (file.kind === 'markdown') {
       const { meta, body } = splitFrontMatter(file.content);
       // Parsed in an inert template first, so relative images and videos don't start loading
@@ -555,7 +565,11 @@ export function init(ctx) {
       wireWikiLinks(prose, file.path);
       doc.replaceChildren(h('article', { class: 'brain-article' }, note,
         meta ? h('details', { class: 'front-matter' }, h('summary', {}, 'Properties'), h('pre', {}, meta)) : null, prose));
-    } else if (file.kind === 'text') {
+    } else if (file.kind === 'html' && !htmlSource) {
+      // Sandboxed twice over: here, and by the route's CSP, which also covers the page opened on its own.
+      doc.replaceChildren(h('iframe', { class: 'brain-page', src: pageUrl(file.pageToken, file.path), title: file.name,
+        sandbox: 'allow-popups allow-popups-to-escape-sandbox', referrerpolicy: 'no-referrer' }));
+    } else if (file.kind === 'text' || file.kind === 'html') {
       doc.replaceChildren(h('article', { class: 'brain-article wide' }, note, h('pre', { class: 'brain-text' }, file.content)));
     } else if (file.kind === 'image') {
       doc.replaceChildren(h('article', { class: 'brain-article' }, h('img', { class: 'brain-image', src: `/api/brain/image?${query(file.path)}`, alt: file.name })));
@@ -673,6 +687,12 @@ export function init(ctx) {
   }
 
   // ---- Editing ------------------------------------------------------------
+  function toggleSource() {
+    htmlSource = !htmlSource;
+    store.set('brain.htmlSource', htmlSource);
+    renderFile();
+  }
+
   function startEdit() {
     editor = h('textarea', { class: 'brain-editor', spellcheck: 'true', 'aria-label': `Edit ${file.name}` });
     editor.value = file.lf;

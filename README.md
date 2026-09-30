@@ -7,7 +7,7 @@ One codebase runs in two places:
 - **Windows:** a background process on your own machine, reached on `127.0.0.1` and installed as an Edge app.
 - **Proxmox LXC:** an always-on service in an unprivileged container, reached remotely through Cloudflare Tunnel.
 
-Version 0.2.4. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-ai/claude-agent-sdk` 0.3.284.
+Version 0.2.5. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropic-ai/claude-agent-sdk` 0.3.284.
 
 ## Features
 
@@ -36,7 +36,7 @@ Version 0.2.4. Runs on Node 22.13 or newer (24 LTS recommended), with `@anthropi
 - Extra folders outside the brain (local or network) allowed per profile
 
 **Views**
-- **Brain:** browse, read, edit and download the brain. Markdown with `[[wiki links]]` and embeds, images and video, uploads, a trash folder, and git commits on save when the brain is a repository
+- **Brain:** browse, read, edit and download the brain. Markdown with `[[wiki links]]` and embeds, images and video, HTML pages shown rendered (with a Source button for the code; scripts don't run), uploads, a trash folder, and git commits on save when the brain is a repository
 - **Tasks:** a board of day columns with nesting, states and drag and drop
 - **Notes:** coloured sticky notes, active or long-standing
 

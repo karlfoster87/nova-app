@@ -66,6 +66,9 @@ put('Other/brief.md', '# Other\n');
 put('img/logo.png', Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 put('media/clip.mp4', '0123456789'); // ten bytes, enough to check byte ranges
 put('node_modules/pkg/clip.webm', 'hidden');
+// An HTML page with its stylesheet, for the rendered-page route.
+put('site/report.html', '<!doctype html><link rel=stylesheet href=style.css><img src=../img/logo.png><p>Réport</p>');
+put('site/style.css', 'p { color: teal; }');
 let linked = true; // a link that leads out of the brain; junctions need no special rights on Windows
 try { fs.symlinkSync(extra, path.join(brainDir, 'outside-link'), 'junction'); } catch { linked = false; }
 let hasGit = true;
@@ -318,8 +321,8 @@ async function brain(a, b, c) {
   const whole = (await http('GET', '/api/brain/download?path=&check=1', { cookie: b })).data;
   // notes/a.md, notes/crlf.md, bin/data.bin, .claude/settings.json, .claude/settings.local.json
   // (from the share check above), profiles/smoke-b/mine.md, the three link-test files and
-  // media/clip.mp4 (node_modules/pkg/clip.webm stays hidden).
-  check(whole?.files === 10, 'a whole-brain zip leaves out hidden paths and other profiles\' folders');
+  // media/clip.mp4 and site/report.html with site/style.css (node_modules/pkg/clip.webm stays hidden).
+  check(whole?.files === 12, 'a whole-brain zip leaves out hidden paths and other profiles\' folders');
 
   // Obsidian-style [[links]] resolve by name, the way Obsidian does.
   const names = ['a', 'brief', 'Acme/brief', 'Clients/Acme/brief.md', '#Top', 'a#Heading', 'logo.png', 'mine', 'missing', 'node_modules/pkg/readme'];
@@ -335,6 +338,7 @@ async function brain(a, b, c) {
   check(near?.brief === 'Clients/Acme/brief.md', 'a note in the linking note\'s own folder wins');
   check((await http('GET', '/api/brain/image?path=notes%2Fa.md', { cookie: a })).status === 415, 'only raster images are served inline');
   await brainVideo(a, c);
+  await brainPages(a, b, c);
   await brainFiles(b, c);
   await tasksAndNotes(a, b, c);
 }
@@ -366,6 +370,38 @@ async function brainVideo(a, c) {
   check((await get('media/clip.mp4', { cookie: c })).status === 403, 'a profile without brain access can\'t stream video');
   const signedOut = await fetch(`${base}/api/brain/video?path=media%2Fclip.mp4`, { redirect: 'manual' });
   check(signedOut.status === 401, 'video needs a session');
+}
+
+// Rendered HTML pages: served path-style so relative links work, sandboxed by CSP, scripts off.
+// The frame's requests carry no cookie, so a token from opening the file stands in for it.
+async function brainPages(a, b, c) {
+  const open = async (cookie) => (await http('GET', '/api/brain/file?path=site%2Freport.html', { cookie })).data;
+  const f = await open(a);
+  const get = async (p, token = f?.pageToken) => {
+    const res = await fetch(`${base}/api/brain/page/${token}/${p}`, { redirect: 'manual' });
+    return { status: res.status, type: res.headers.get('content-type') || '', csp: res.headers.get('content-security-policy') || '', body: await res.text() };
+  };
+  check(f?.kind === 'html' && f.content.includes('Réport') && !f.readOnly && /^[0-9a-f]{48}$/.test(f.pageToken), 'an HTML file opens as an editable page with a page token');
+  check((await http('GET', '/api/brain/file?path=notes%2Fa.md', { cookie: a })).data?.pageToken === undefined, 'only HTML files get a page token');
+  const pg = await get('site/report.html');
+  check(pg.status === 200 && pg.type === 'text/html; charset=utf-8' && pg.body.includes('Réport'), 'an HTML page is served as UTF-8 HTML');
+  check(/^sandbox /.test(pg.csp) && /default-src 'none'/.test(pg.csp) && !/script-src/.test(pg.csp) && /frame-ancestors 'self'/.test(pg.csp),
+    'a page is sandboxed with no scripts and can only be framed by Nova');
+  const css = await get('site/style.css');
+  check(css.status === 200 && css.type.startsWith('text/css') && /^sandbox /.test(css.csp), 'a page\'s stylesheet loads beside it');
+  check((await get('img/logo.png')).type === 'image/png', 'a page\'s relative image loads');
+  check((await get('site/Report%20copy.html')).status === 404, 'a missing page is 404');
+  check((await get('notes/a.md')).status === 415 && (await get('bin/data.bin')).status === 415, 'only pages, stylesheets and images are served as page parts');
+  check((await get('node_modules/pkg/readme.md')).status === 404, 'a hidden file isn\'t served as a page part');
+  check((await get('..%2Fextra%2Foutside.md')).status === 403, 'a page path can\'t climb out of the brain');
+  check((await get('%E0%A4%A')).status === 400, 'a badly encoded page path is refused');
+  check((await http('GET', '/api/brain/file?path=site%2Freport.html', { cookie: c })).status === 403, 'a profile without brain access gets no page token');
+  check((await get('site/report.html', 'f'.repeat(48))).status === 401 && (await get('site/report.html', 'x')).status === 401, 'pages need a real token');
+  // The token names the profile; its access is checked on every request, so taking it away works at once.
+  const tokenB = (await open(b))?.pageToken;
+  check((await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { brain: 'none' } } })).status === 200
+    && (await get('site/report.html', tokenB)).status === 403, 'a page token stops working when brain access is taken away');
+  await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { brain: 'edit' } } });
 }
 
 // Brain upload and delete. smoke-b has edit access by now; smoke-c has no brain access.

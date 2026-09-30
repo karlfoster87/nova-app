@@ -16,6 +16,7 @@ import { zipTo } from './zip.js';
 
 const ALWAYS_HIDDEN = new Set(['.git', 'node_modules']);
 const MARKDOWN = new Set(['.md', '.markdown', '.mdx']);
+const HTML = new Set(['.html', '.htm']);
 const IMAGES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif' };
 // Video browsers play natively. A file whose codec the browser can't play falls back to a
 // download prompt in the viewer. (.mov is common from phones and plays when it's H.264.)
@@ -183,8 +184,9 @@ export function readFile(profile, input) {
   const buf = fs.readFileSync(abs);
   const text = decode(buf);
   if (text === null) return { ...file, kind: 'binary' };
-  return { ...file, kind: MARKDOWN.has(ext) ? 'markdown' : 'text', content: text, version: versionOf(buf),
-    readOnly: readOnlyReason(profile, rel, st.size), canDelete: entryRights(profile, rel, false).canDelete };
+  return { ...file, kind: MARKDOWN.has(ext) ? 'markdown' : HTML.has(ext) ? 'html' : 'text', content: text, version: versionOf(buf),
+    readOnly: readOnlyReason(profile, rel, st.size), canDelete: entryRights(profile, rel, false).canDelete,
+    pageToken: HTML.has(ext) ? pageToken(profile) : undefined };
 }
 
 // ---- Saving -----------------------------------------------------------------
@@ -529,6 +531,60 @@ export function image(profile, input) {
   return {
     headers: { 'Content-Type': type, 'Content-Length': st.size, 'Cache-Control': 'no-cache' },
     write: (res) => new Promise((resolve, reject) => fs.createReadStream(abs).on('error', reject).pipe(res).on('finish', resolve).on('close', resolve))
+  };
+}
+
+// ---- Rendered HTML pages ----------------------------------------------------
+
+// An HTML file from the brain, shown as a page in the viewer's frame, plus the stylesheets
+// and images it refers to. The route is path-shaped (/api/brain/page/<path>) so the page's
+// relative links resolve to its neighbours with no rewriting. The page may have been written
+// by anyone, so the CSP sandbox gives it an opaque origin (it can't read Nova's cookies or
+// call its API) and no scripts run. Styles, images and fonts may come from the brain or the
+// web, so reports that use a web font or a CDN stylesheet still look right.
+const PAGE_CSP = "sandbox allow-popups allow-popups-to-escape-sandbox; default-src 'none'; " +
+  "style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; font-src 'self' data: https:; " +
+  "media-src 'self' https:; form-action 'none'; base-uri 'none'; frame-ancestors 'self'";
+const PAGE_PARTS = { '.css': 'text/css', ...IMAGES };
+
+// With an opaque origin the page's own requests (its stylesheet, images, a link to the next
+// page) carry no session cookie, which is SameSite=Strict. So readFile hands out a token that
+// stands in for the profile, and it goes in the page's path where relative URLs keep it.
+// It only reaches this route, which still checks the profile's access on every request.
+// Tokens live in memory: a restart or 12 hours means opening the file again.
+const PAGE_TTL = 12 * 60 * 60 * 1000;
+const pageTokens = new Map(); // token -> { profile, expires }
+function pageToken(profile) {
+  const now = Date.now();
+  for (const [t, v] of pageTokens) if (v.expires < now) pageTokens.delete(t);
+  for (const [t, v] of pageTokens) if (v.profile === profile && v.expires - now > PAGE_TTL / 2) return t;
+  const token = crypto.randomBytes(24).toString('hex');
+  pageTokens.set(token, { profile, expires: now + PAGE_TTL });
+  return token;
+}
+export function pageProfile(token) {
+  const v = pageTokens.get(token);
+  if (!v || v.expires < Date.now()) throw new UserError('This page has expired. Open it again from the brain list.', 401);
+  return v.profile;
+}
+
+export function page(profile, input) {
+  requireView(profile, 'brain', 'read');
+  const { abs } = resolve(profile, input);
+  const st = fs.statSync(abs);
+  const ext = path.extname(abs).toLowerCase();
+  if (!st.isFile() || (!HTML.has(ext) && !PAGE_PARTS[ext])) {
+    throw new UserError('Only HTML pages, and the stylesheets and images they use, show here. Open other files from the brain list.', 415);
+  }
+  if (!IMAGES[ext] && st.size > config.brain.maxViewKB * 1024) throw new UserError('That file is too large to show here. Download it instead.', 413);
+  const buf = fs.readFileSync(abs);
+  // Brain files are UTF-8, but a page that isn't valid UTF-8 keeps its own <meta charset>.
+  const text = !IMAGES[ext] && decode(buf) !== null;
+  const type = HTML.has(ext) ? 'text/html' : PAGE_PARTS[ext];
+  return {
+    headers: { 'Content-Type': text ? `${type}; charset=utf-8` : type, 'Content-Length': buf.length, 'Cache-Control': 'no-store',
+      'Content-Security-Policy': PAGE_CSP },
+    write: async (res) => res.end(buf)
   };
 }
 

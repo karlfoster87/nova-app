@@ -19,7 +19,7 @@ import { appStatus, checkApp, scheduleAppChecks, startAppUpdate } from './appupd
 import { createChat, runnerFor, existingRunner, ownedChat, history, stateOf, PERMISSION_MODES, busyRunners, closeAllRunners, refreshRunners, refreshAllRunners, adoptTranscripts } from './chat.js';
 import { listApprovals, forgetApproval, shareApproval, listFolders, addFolder, removeFolder } from './permissions.js';
 import { VIEWS, accessFor, can } from './access.js';
-import { listFolder, readFile, writeFile, download, image, video, resolveLinks, deletePath, uploadFile, commitUpload } from './brain.js';
+import { listFolder, readFile, writeFile, download, image, page, pageProfile, video, resolveLinks, deletePath, uploadFile, commitUpload } from './brain.js';
 import { listTasks, tasksLeftToday, createTask, updateTask, moveTask, deleteTask } from './tasks.js';
 import { listNotes, activeNoteCount, createNote, updateNote, moveNote, deleteNote } from './notes.js';
 import { saveUpload, discardUpload, openUpload, claimUploads, messageContent, sweepUploads } from './uploads.js';
@@ -147,6 +147,19 @@ const server = http.createServer(async (req, res) => {
       const r = login(String(name || '').trim(), String(password || ''));
       if (r.error) return send(res, 401, { error: r.error });
       return send(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader(r.token) });
+    }
+
+    // An HTML page for the brain viewer's sandboxed frame, and the files it refers to by
+    // relative path. The frame's requests carry no cookie, so the token in the path names the
+    // profile instead (see page in brain.js), and access is checked as for any brain route.
+    const pageMatch = req.method === 'GET' && p.match(/^\/api\/brain\/page\/([^/]*)\/(.+)$/);
+    if (pageMatch) {
+      let target;
+      try { target = pageMatch[2].split('/').map(decodeURIComponent).join('/'); }
+      catch { throw new UserError('That path isn\'t valid.'); }
+      const out = page(pageProfile(pageMatch[1]), target);
+      res.writeHead(200, { ...securityHeaders, ...out.headers });
+      return out.write(res);
     }
 
     // Everything below needs a profile
