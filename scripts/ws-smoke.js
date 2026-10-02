@@ -294,7 +294,11 @@ async function brain(a, b, c) {
   check((await file(b, 'profiles/smoke-a/mine.md')).status === 404, 'another profile\'s notes folder can\'t be read');
   check((await file(a, 'node_modules/pkg/readme.md')).status === 404, 'a hidden path can\'t be read directly');
   check((await file(a, '../extra/outside.md')).status === 403, 'climbing out of the brain is refused');
-  check((await file(a, extra.replace(/\\/g, '/') + '/outside.md')).status === 403, 'an absolute path is refused');
+  // A drive path (Windows) is refused outright. A leading slash (Linux) means the brain's own
+  // root, so /tmp/.../outside.md is looked for inside the brain and isn't found. Either way the
+  // file outside is never served.
+  const absolute = await file(a, extra.replace(/\\/g, '/') + '/outside.md');
+  check(absolute.status === (/^[a-zA-Z]:/.test(extra) ? 403 : 404) && !absolute.data?.content, 'an absolute path is refused');
   if (linked) check((await file(a, 'outside-link/outside.md')).status === 403, 'a link leading out of the brain is refused');
   check((await file(a, 'bin/data.bin')).data?.kind === 'binary', 'a binary file is reported, not shown');
 
