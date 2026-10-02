@@ -2,6 +2,8 @@
 
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line-bright) transparent; }
 html, body { height: 100%; margin: 0; }
+/* A sideways swipe opens a drawer (shell/drawers.js), so it mustn't also go back a page */
+html, body { overscroll-behavior-x: none; }
 body {
   background-color: var(--void);
   background-image:
@@ -70,7 +72,7 @@ body:not(.login-body) {
 .appbar {
   display: flex; align-items: center; gap: 18px; min-height: 54px; padding: 0 16px; flex-wrap: wrap;
 }
-.brand { display: flex; align-items: center; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 10px; border: 0; background: none; padding: 0; cursor: pointer; border-radius: var(--r-sm); }
 .brand-mark { width: 30px; height: 30px; fill: none; stroke: var(--accent); stroke-width: 1.6; filter: drop-shadow(0 0 5px var(--glow)); }
 .brand-mark circle:last-child { fill: var(--accent); stroke: none; }
 .brand-name {
@@ -115,3 +117,41 @@ body:not(.login-body) {
 .stop-btn:hover { background: var(--bad-soft); box-shadow: 0 0 14px -4px var(--bad); }
 /* The confirm button of a destructive dialog */
 .danger-btn { border: 1px solid var(--bad); background: var(--bad); color: var(--accent-ink); border-radius: var(--r-sm); padding: 7px 16px; cursor: pointer; font-weight: 700; font-size: 12px; }
+
+/* ---- Checkboxes -----------------------------------------------------------
+   Every checkbox matches the task board's square (tasks.css .task-state): a thin box with a
+   glow, filled with the accent and a tick when it's checked. */
+input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; flex: none; display: inline-grid; place-content: center;
+  width: 16px; height: 16px; margin: 0; vertical-align: -3px; cursor: pointer;
+  border: 1.5px solid var(--muted); border-radius: 2px; background: none;
+  transition: border-color 0.12s, background-color 0.12s, box-shadow 0.12s;
+}
+input[type=checkbox]::before {
+  content: ''; width: 8px; height: 4px; border: solid var(--accent-ink); border-width: 0 0 2px 2px;
+  transform: translateY(-1px) rotate(-45deg) scale(0); transition: transform 0.12s;
+}
+input[type=checkbox]:hover:not(:disabled) { border-color: var(--accent); }
+input[type=checkbox]:checked { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 6px var(--glow); }
+input[type=checkbox]:checked::before { transform: translateY(-1px) rotate(-45deg) scale(1); }
+input[type=checkbox]:disabled { opacity: 0.45; cursor: default; }
+
+/* ---- Sliding text (lib/slide.js) --------------------------------------------
+   A name too long for its space slides to show its end, pauses, and slides back. */
+.slide.sliding { text-overflow: clip; }
+.slide.sliding > span { display: inline-block; animation: slide-text var(--slide-time, 4s) ease-in-out infinite alternate; }
+.slide.sliding.once > span { animation-iteration-count: 2; }
+@keyframes slide-text { 0%, 18% { transform: none; } 82%, 100% { transform: translateX(var(--slide-by, 0)); } }
+@media (prefers-reduced-motion: reduce) {
+  .slide.sliding { text-overflow: ellipsis; }
+  .slide.sliding > span { display: inline; animation: none; }
+}
+
+/* ---- Dragging cards (lib/drag.js) -------------------------------------------
+   The copy that follows the pointer; the card itself stays put, dimmed, until it's dropped. */
+.drag-ghost {
+  pointer-events: none; opacity: 0.92; cursor: grabbing; /* position, size and place are set inline by drag.js */
+  box-shadow: 0 0 0 1px var(--accent), 0 10px 30px -8px rgb(0 0 0 / 0.6), 0 0 20px -6px var(--glow);
+  transition: none;
+}
+.card-dragging, .card-dragging * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }

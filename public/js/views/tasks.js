@@ -3,21 +3,25 @@
 // days only when a task is on them, and Unscheduled only when asked for from the sidebar.
 // The board is a window of one or two whole days that steps a day at a time (arrows, Today,
 // sidebar days, a swipe, or holding a dragged task over an edge), never free scrolling.
-// Tasks nest; only top-level tasks have a day. Drag a card onto another card's middle to
-// nest it, near its top or bottom edge to place it before or after, or onto a column to put
-// it at the end of that day. Every move also has a menu equivalent for keyboard and touch.
+// Tasks nest; only top-level tasks have a day. Drag a whole card onto another card's middle
+// to nest it, near its top or bottom edge or into the gap beside it to place it before or
+// after, or onto a column to put it at the end of that day. Every move also has a menu
+// equivalent for the keyboard.
 import { h, svgIcon } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { store } from '../lib/store.js';
 import { localDay as iso } from '../lib/format.js';
 import { openMenu } from '../lib/menu.js';
 import { confirmDialog, promptDialog } from '../lib/dialog.js';
+import { draggable, dragActive } from '../lib/drag.js';
+import { fromEdge } from '../shell/drawers.js';
 
 const STATES = [['waiting', 'Waiting'], ['in_progress', 'In progress'], ['complete', 'Complete']];
 const STATE_NAME = Object.fromEntries(STATES);
 const NEXT_STATE = { waiting: 'in_progress', in_progress: 'complete', complete: 'waiting' };
 const ICONS = { more: 'M5 12h.01M12 12h.01M19 12h.01', menu: 'M4 6h16M4 12h16M4 18h16', prev: 'M15 18l-6-6 6-6', next: 'M9 18l6-6-6-6' };
 const AHEAD = 3; // days after today that always show, even when empty
+const EDGE_BAND = 9; // px at a card's top and bottom edge that mean before or after it, not inside
 const icon = (name) => svgIcon(ICONS[name]);
 
 // Dates are local calendar days as 'YYYY-MM-DD', so "today" and "overdue" follow this device's clock.
@@ -197,11 +201,15 @@ export function init(ctx) {
   new ResizeObserver(() => align()).observe(board);
   matchMedia('(min-width: 1441px)').addEventListener('change', () => align());
 
-  // Touch: a sideways swipe steps a day, since the board doesn't scroll.
+  // Touch: a sideways swipe steps a day, since the board doesn't scroll. A swipe in from the
+  // screen's edge opens a drawer instead, and a dragged card isn't a swipe.
   let touch = null;
-  board.addEventListener('touchstart', (e) => { touch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }, { passive: true });
+  board.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    touch = e.touches.length === 1 && !fromEdge(t.clientX) ? { x: t.clientX, y: t.clientY } : null;
+  }, { passive: true });
   board.addEventListener('touchend', (e) => {
-    if (!touch) return;
+    if (!touch || dragActive()) return;
     const t = e.changedTouches[0], dx = t.clientX - touch.x, dy = t.clientY - touch.y;
     touch = null;
     if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) step(dx < 0 ? 1 : -1);
@@ -209,20 +217,23 @@ export function init(ctx) {
 
   // While a task is dragged, holding it over either edge of the board steps a day, and keeps
   // stepping while it stays there. The edges aren't drop targets.
-  function hotspot(el, dir) {
-    let timer = null;
-    const stop = () => { clearTimeout(timer); timer = null; el.classList.remove('hot'); };
-    const tick = (wait) => { timer = setTimeout(() => { step(dir); tick(700); }, wait); };
-    el.addEventListener('dragenter', () => {
-      if (!dragging || timer) return;
-      clearMarks();
-      el.classList.add('hot');
-      tick(450);
-    });
-    el.addEventListener('dragleave', stop);
-    return stop;
+  let hot = null; // { el, timer } for the edge being held
+  function holdEdge(el) {
+    if (hot?.el === el) return;
+    stopHot();
+    if (!el || el.classList.contains('off')) return;
+    const dir = el === hotPrev ? -1 : 1;
+    const tick = (wait) => { hot.timer = setTimeout(() => { step(dir); tick(700); }, wait); };
+    hot = { el };
+    el.classList.add('hot');
+    tick(450);
   }
-  const stopHot = [hotspot(hotPrev, -1), hotspot(hotNext, 1)];
+  function stopHot() {
+    if (!hot) return;
+    clearTimeout(hot.timer);
+    hot.el.classList.remove('hot');
+    hot = null;
+  }
 
   const childrenOf = (t) => kids.get(t.id) || [];
   const isOverdue = (t) => !t.parentId && t.day && t.day < todayIso() && t.state !== 'complete';
@@ -298,10 +309,7 @@ export function init(ctx) {
           h('small', {}, past ? `${sub} · overdue` : sub)),
         h('span', { class: 'cat-count', title: `${open} left to do` }, String(open))),
       body);
-    if (drop && canEdit()) {
-      col.append(addBox(day, key));
-      dropColumn(body, day);
-    }
+    if (drop && canEdit()) col.append(addBox(day, key));
     return col;
   }
 
@@ -369,7 +377,6 @@ export function init(ctx) {
     const input = h('input', { type: 'text', class: 'inline-edit', maxlength: '200', 'aria-label': 'Task name' });
     input.value = t.title;
     target.replaceWith(input);
-    input.closest('.task')?.setAttribute('draggable', 'false');
     input.focus();
     input.select();
     let finished = false;
@@ -430,74 +437,85 @@ export function init(ctx) {
   }
 
   // ---- Drag and drop ------------------------------------------------------
-  // Where a drop on a card lands: near the top edge before it, near the bottom after it,
-  // in the middle inside it as a subtask.
-  function zone(e, row) {
-    const r = row.getBoundingClientRect();
-    const y = (e.clientY - r.top) / r.height;
-    return y < 0.3 ? 'before' : y > 0.7 ? 'after' : 'inside';
-  }
+  // The whole card drags (lib/drag.js); a click without movement still renames or changes
+  // state. Where it lands is worked out from the pointer, so there are no dead gaps:
+  //  - over a card's own part (its row, note, progress and padding, not its subtasks): a thin
+  //    band at its top edge is before it and one at its bottom edge after it; everywhere else
+  //    on the card makes it a subtask, so dropping on a parent's note or padding nests it. A
+  //    card that already shows subtasks has no "after" (that would land below them).
+  //  - anywhere else in a list (the gaps between cards, the space under them, a subtask
+  //    list's margin): before the first card in that list whose middle is below the pointer,
+  //    or after the last one. So landing between two cards puts it between them.
+  //  - elsewhere in a column (its heading or add box): the end of that day.
+  // Earlier days take no new tasks at the end, but their cards can still be dropped on.
   function clearMarks() {
     for (const el of board.querySelectorAll('.drop-before, .drop-after, .drop-inside, .drop-target')) el.classList.remove('drop-before', 'drop-after', 'drop-inside', 'drop-target');
   }
   // True if dropping the dragged task on this one would put it inside itself.
   const ownBranch = (t) => !dragging || t.id === dragging || descendants(tasks.get(dragging)).includes(t);
+  const colDay = (col) => col.dataset.day === 'none' ? null : col.dataset.day;
 
-  function dragCard(el, t) {
-    el.draggable = true;
-    const row = el.querySelector('.task-row');
-    el.addEventListener('dragstart', (e) => {
-      e.stopPropagation(); // a subtask drags alone, not its parent
-      dragging = t.id;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', t.id);
-      requestAnimationFrame(() => { el.classList.add('drag-source'); stage.classList.add('dragging'); });
-    });
-    el.addEventListener('dragend', () => {
-      el.classList.remove('drag-source');
-      stage.classList.remove('dragging');
-      stopHot.forEach((stop) => stop());
-      dragging = null;
-      clearMarks();
-      if (stale) render();
-    });
-    row.addEventListener('dragover', (e) => {
-      if (ownBranch(t)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      clearMarks();
-      el.classList.add(`drop-${zone(e, row)}`);
-    });
-    row.addEventListener('dragleave', (e) => { if (!row.contains(e.relatedTarget)) el.classList.remove('drop-before', 'drop-after', 'drop-inside'); });
-    row.addEventListener('drop', (e) => {
-      if (ownBranch(t)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const id = dragging, where = zone(e, row);
-      dragging = null;
-      clearMarks();
-      if (where === 'inside') return move(id, { parentId: t.id }, `Now a subtask of "${t.title}".`);
-      const sibs = siblingsOf(t).filter((s) => s.id !== id);
-      const beforeId = where === 'before' ? t.id : sibs[sibs.indexOf(t) + 1]?.id ?? null;
-      move(id, { parentId: t.parentId, day: t.parentId ? null : t.day, beforeId });
-    });
+  function dropAt(y, under) {
+    const col = under?.closest('.task-col');
+    if (!col || !board.contains(col)) return null;
+    const card = under.closest('.task');
+    const below = card?.querySelector(':scope > .task-children');
+    if (card && !(below && y >= below.getBoundingClientRect().top)) {
+      const t = tasks.get(card.dataset.id);
+      if (!t || ownBranch(t)) return null;
+      const r = card.getBoundingClientRect(), bottom = below ? below.getBoundingClientRect().top : r.bottom;
+      const edge = Math.min(EDGE_BAND, (bottom - r.top) / 4);
+      return { el: card, t, where: y < r.top + edge ? 'before' : below || y <= bottom - edge ? 'inside' : 'after' };
+    }
+    const list = below || under.closest('.task-children, .task-list') || col.querySelector('.task-list');
+    const cards = [...list.children].filter((c) => c.classList.contains('task') && !c.classList.contains('drag-source'));
+    const next = cards.find((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; });
+    const pick = next || cards[cards.length - 1];
+    const t = pick && tasks.get(pick.dataset.id);
+    if (t && !ownBranch(t)) return { el: pick, t, where: next ? 'before' : 'after' };
+    if (list.classList.contains('task-list') && !col.classList.contains('overdue-col')) return { el: list, day: colDay(col), where: 'end' };
+    return null;
   }
 
-  function dropColumn(body, day) {
-    body.addEventListener('dragover', (e) => {
-      if (!dragging) return;
-      e.preventDefault();
-      clearMarks();
-      body.classList.add('drop-target');
-    });
-    body.addEventListener('dragleave', (e) => { if (!body.contains(e.relatedTarget)) body.classList.remove('drop-target'); });
-    body.addEventListener('drop', (e) => {
-      if (!dragging) return;
-      e.preventDefault();
-      const id = dragging;
-      dragging = null;
-      clearMarks();
-      move(id, { day }, day ? `Moved to ${dayName(day)}.` : 'Moved to Unscheduled.');
+  function mark(target) {
+    clearMarks();
+    if (!target) return;
+    target.el.classList.add(target.where === 'end' ? 'drop-target' : `drop-${target.where}`);
+  }
+
+  function dragCard(el, t) {
+    draggable(el, {
+      canStart: () => !editing,
+      start() {
+        dragging = t.id;
+        touch = null;
+        el.classList.add('drag-source');
+        stage.classList.add('dragging');
+      },
+      move(x, y, under) {
+        const edge = under?.closest('.task-hot');
+        holdEdge(edge);
+        mark(edge ? null : dropAt(y, under));
+      },
+      drop(x, y, under) {
+        const id = dragging, target = under?.closest('.task-hot') ? null : dropAt(y, under);
+        dragging = null;
+        if (!target) return;
+        if (target.where === 'end') return move(id, { day: target.day }, target.day ? `Moved to ${dayName(target.day)}.` : 'Moved to Unscheduled.');
+        const { t: on, where } = target;
+        if (where === 'inside') return move(id, { parentId: on.id }, `Now a subtask of "${on.title}".`);
+        const sibs = siblingsOf(on).filter((s) => s.id !== id);
+        const beforeId = where === 'before' ? on.id : sibs[sibs.indexOf(on) + 1]?.id ?? null;
+        move(id, { parentId: on.parentId, day: on.parentId ? null : on.day, beforeId });
+      },
+      end(dropped) {
+        el.classList.remove('drag-source');
+        stage.classList.remove('dragging');
+        stopHot();
+        clearMarks();
+        dragging = null;
+        if (stale) render();
+      }
     });
   }
 

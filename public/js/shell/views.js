@@ -146,5 +146,8 @@ export async function goToChat(id) {
   if (view === 'chats' && state.chats.some((c) => c.id === id)) openChat(id);
 }
 
+// The Nova mark in the header goes back to Chats from any view, keeping the open chat.
+$('brandBtn').addEventListener('click', () => showView('chats'));
+
 // New chat, from the sidebar's button in any view.
 $('newChatBtn').addEventListener('click', async () => { await showView('chats'); if (view === 'chats') newChat(null); });

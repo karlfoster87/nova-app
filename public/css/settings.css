@@ -14,7 +14,7 @@
 }
 .settings input:focus, .settings select:focus, .settings textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 10px -3px var(--glow); }
 .settings select option { background: var(--raised); }
-.settings input[type=checkbox], .settings input[type=radio] { accent-color: var(--accent); }
+.settings input[type=radio] { accent-color: var(--accent); }
 .settings { max-height: min(88dvh, 820px); overflow-y: auto; }
 .settings h3 { font-size: 12px; font-weight: 700; margin: 0; color: var(--bright); }
 .settings code { color: var(--accent); }
@@ -117,5 +117,6 @@ fieldset.grid-2 legend { grid-column: 1 / -1; }
 .toggles { display: grid; gap: 4px; }
 .toggles label { display: flex; gap: 8px; align-items: baseline; }
 .toggles small { color: var(--muted); }
+.toggles input[type=checkbox] { align-self: center; }
 .settings-actions { display: flex; gap: 8px; align-items: center; }
 .spacer { flex: 1; }

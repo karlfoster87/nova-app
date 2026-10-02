@@ -8,6 +8,7 @@ import { store } from '../lib/store.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { openMenu } from '../lib/menu.js';
 import { confirmDialog } from '../lib/dialog.js';
+import { draggable } from '../lib/drag.js';
 
 const COLORS = [['yellow', 'Yellow'], ['green', 'Green'], ['blue', 'Blue'], ['pink', 'Pink'], ['purple', 'Purple'], ['grey', 'Grey']];
 const COLOR_NAME = Object.fromEntries(COLORS);
@@ -49,8 +50,6 @@ export function init(ctx) {
   const longGrid = h('div', { class: 'note-grid' });
   const longSection = h('section', { class: 'note-long', 'aria-labelledby': 'notesLongTitle' },
     h('h3', { id: 'notesLongTitle' }, 'Long-standing ', h('span', { class: 'muted' }, 'not counted')), longGrid);
-  dropSection(grid, true);
-  dropSection(longSection, false);
   const board = h('section', { class: 'note-board' }, grid, longSection);
   const status = h('p', { class: 'view-status', role: 'status' });
   main.append(h('header', { class: 'topbar notes-bar' },
@@ -202,7 +201,6 @@ export function init(ctx) {
     const input = h('textarea', { class: 'note-input', maxlength: '10000', 'aria-label': 'Note text', placeholder: 'Write a note' });
     input.value = n.text;
     el.querySelector('.note-body').replaceWith(input);
-    el.draggable = false;
     el.classList.add('editing');
     editing = { n, el, input, timer: null, fresh, saved: n.text, original: n.text };
     input.focus();
@@ -313,76 +311,69 @@ export function init(ctx) {
   }
 
   // ---- Drag and drop ------------------------------------------------------
-  // Notes flow left to right, so the left half of a note means before it, the right half after.
-  const zone = (e, el) => { const r = el.getBoundingClientRect(); return e.clientX - r.left < r.width / 2 ? 'before' : 'after'; };
+  // The whole note drags (lib/drag.js); a click without movement still opens it for editing.
+  // Notes flow left to right, so the left half of a note means before it, the right half
+  // after. In the gaps between notes the nearest note decides, so a drop there never jumps to
+  // the end; below a section's last row (or in an empty section) it goes to the end of that
+  // section, switching between active and long-standing if it came from the other one.
   const clearMarks = () => { for (const el of board.querySelectorAll('.drop-before, .drop-after, .drop-target')) el.classList.remove('drop-before', 'drop-after', 'drop-target'); };
 
-  // A section's own space (not a note in it): the note goes to the end of that section,
-  // switching between active and long-standing if it came from the other one.
-  function dropSection(target, active) {
-    target.addEventListener('dragover', (e) => {
-      if (!dragging) return;
-      e.preventDefault();
-      clearMarks();
-      target.classList.add('drop-target');
-    });
-    target.addEventListener('dragleave', (e) => { if (!target.contains(e.relatedTarget)) target.classList.remove('drop-target'); });
-    target.addEventListener('drop', async (e) => {
-      if (!dragging) return;
-      e.preventDefault();
-      const n = notes.find((x) => x.id === dragging);
-      dragging = null;
-      clearMarks();
-      if (!n) return;
-      if (n.active !== active) {
-        await update(n, { active });
-        setStatus(active ? 'Note is active again and counted.' : 'Note moved to long-standing. It isn\'t counted.');
-      }
-      // Sections share one order, so the very end is also the end of this section.
-      move(n.id, null);
-    });
+  function dropAt(x, y, under) {
+    const section = under?.closest('.note-grid, .note-long');
+    if (!section || !board.contains(section)) return null;
+    const gridEl = section.classList.contains('note-long') ? longGrid : section;
+    const active = gridEl === grid;
+    let el = under.closest('.note');
+    if (!el || el.classList.contains('drag-source')) {
+      const cards = [...gridEl.querySelectorAll(':scope > .note:not(.drag-source)')];
+      const rects = cards.map((c) => c.getBoundingClientRect());
+      // Under the last row: the end of this section.
+      if (!cards.length || y > Math.max(...rects.map((r) => r.bottom))) return { el: active ? grid : longSection, active, where: 'end' };
+      const gap = (r) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+      el = cards[rects.reduce((best, r, i) => gap(r) < gap(rects[best]) ? i : best, 0)];
+    }
+    const n = notes.find((x) => x.id === el.dataset.id);
+    if (!n || n.id === dragging) return null;
+    const r = el.getBoundingClientRect();
+    return { el, n, where: x - r.left < r.width / 2 ? 'before' : 'after' };
   }
 
   function dragNote(el, n) {
-    el.draggable = true;
-    el.addEventListener('dragstart', (e) => {
-      if (editing) { e.preventDefault(); return; }
-      dragging = n.id;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', n.id);
-      // The long-standing section shows during a drag even when it's empty, as a place to drop.
-      requestAnimationFrame(() => { el.classList.add('drag-source'); board.classList.add('dragging'); longSection.hidden = false; });
-    });
-    el.addEventListener('dragend', () => {
-      el.classList.remove('drag-source');
-      board.classList.remove('dragging');
-      dragging = null;
-      clearMarks();
-      render();
-    });
-    el.addEventListener('dragover', (e) => {
-      if (!dragging) return;
-      e.stopPropagation();
-      if (dragging === n.id) { clearMarks(); return; }
-      e.preventDefault();
-      clearMarks();
-      el.classList.add(`drop-${zone(e, el)}`);
-    });
-    el.addEventListener('dragleave', (e) => { if (!el.contains(e.relatedTarget)) el.classList.remove('drop-before', 'drop-after'); });
-    el.addEventListener('drop', (e) => {
-      if (!dragging || dragging === n.id) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const id = dragging, where = zone(e, el);
-      dragging = null;
-      clearMarks();
-      const order = notes.map((x) => x.id).filter((x) => x !== id);
-      // Dropped among the other section's notes: it joins that section.
-      const dragged = notes.find((x) => x.id === id);
-      const crossing = dragged && dragged.active !== n.active;
-      if (crossing) setStatus(n.active ? 'Note is active again and counted.' : 'Note moved to long-standing. It isn\'t counted.');
-      (crossing ? update(dragged, { active: n.active }) : Promise.resolve())
-        .then(() => move(id, where === 'before' ? n.id : order[order.indexOf(n.id) + 1] ?? null));
+    draggable(el, {
+      canStart: () => !editing,
+      start() {
+        dragging = n.id;
+        el.classList.add('drag-source');
+        board.classList.add('dragging');
+        longSection.hidden = false; // somewhere to drop, even when it's empty
+      },
+      move(x, y, under) {
+        const target = dropAt(x, y, under);
+        clearMarks();
+        if (target) target.el.classList.add(target.where === 'end' ? 'drop-target' : `drop-${target.where}`);
+      },
+      async drop(x, y, under) {
+        const target = dropAt(x, y, under), id = dragging;
+        const dragged = notes.find((x) => x.id === id);
+        dragging = null;
+        if (!target || !dragged) return render();
+        const into = target.where === 'end' ? target.active : target.n.active;
+        // Dropped among the other section's notes: it joins that section.
+        if (dragged.active !== into) {
+          await update(dragged, { active: into });
+          setStatus(into ? 'Note is active again and counted.' : 'Note moved to long-standing. It isn\'t counted.');
+        }
+        // Sections share one order, so the very end is also the end of this section.
+        if (target.where === 'end') return move(id, null);
+        const order = notes.map((x) => x.id).filter((x) => x !== id);
+        move(id, target.where === 'before' ? target.n.id : order[order.indexOf(target.n.id) + 1] ?? null);
+      },
+      end(dropped) {
+        el.classList.remove('drag-source');
+        board.classList.remove('dragging');
+        clearMarks();
+        if (!dropped) { dragging = null; render(); }
+      }
     });
   }
 

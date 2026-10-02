@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.3.0 · Node 22.13+ · four dependencies · no build step
+Version 0.3.7 · Node 22.13+ · four dependencies · no build step
 
 ## Why Nova
 
@@ -28,7 +28,7 @@ Read and edit the notes Claude works from. Markdown renders with `[[wiki links]]
 
 ### Tasks and notes, beside the chat
 
-A day-by-day task board with subtasks, states and drag and drop, and a wall of coloured sticky notes. Both are counted on their tabs, so you can see what's left today at a glance.
+A day-by-day task board with subtasks and states, and a wall of coloured sticky notes. Drag whole cards to reorder or nest them, with the mouse or a long press on a touch screen. Both are counted on their tabs, so you can see what's left today at a glance.
 
 <p>
   <img src="docs/screenshots/tasks.png" alt="The Tasks board with today's and tomorrow's tasks, one with subtasks" width="49%">
@@ -37,13 +37,13 @@ A day-by-day task board with subtasks, states and drag and drop, and a wall of c
 
 ### Wherever you are
 
-Install Nova as an app on desktop or phone. It's fully responsive, dark or light, and keeps your chats in sync across every device. Run it remotely behind Cloudflare to reach it from anywhere.
+Install Nova as an app on desktop or phone. It's fully responsive (on a phone, swipe in from either edge for the sidebar or the avatar panel, and tap the Nova logo to get back to your chats), dark or light, and keeps your chats in sync across every device. Run it remotely behind Cloudflare to reach it from anywhere.
 
 ![Nova on a phone: a chat with agents running in dark mode, and sticky notes in light mode](docs/screenshots/mobile.png)
 
 ### Also included
 
-- Several profiles (work, home, and so on), each with its own chats, notes folder, tasks and notes; admin and user roles, with per-view access
+- Several profiles (work, home, and so on), each with its own chats, notes folder, tasks and notes; admin and user roles, with per-view access (users see a simpler chat, without the file and shell tool steps)
 - Profile switcher with pictures and a 4-digit PIN
 - Chat categories with drag and drop, search and a Recent list
 - Sign in to Claude from Settings with a Claude subscription or an Anthropic Console account; Nova never handles a token

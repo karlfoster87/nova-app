@@ -18,6 +18,8 @@ export async function refreshMe() {
   icon.querySelector('img')?.remove();
   icon.querySelector('svg').toggleAttribute('hidden', !!me.picture);
   if (me.picture) icon.prepend(h('img', { class: 'picture', src: pictureUrl(me.profile, me.picture), alt: '' }));
+  // Profiles with the User role don't see file and shell tool cards in chats (chat/transcript.js).
+  document.body.classList.toggle('simple-chat', me.role !== 'admin');
   $('version').textContent = me.version ? `v${me.version}` : '';
   renderViewTabs();
   refreshBadges();

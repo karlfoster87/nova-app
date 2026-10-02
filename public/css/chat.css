@@ -71,6 +71,8 @@ details.thinking .body { color: var(--muted); border-color: var(--think-soft); w
 /* While Claude thinks and no summary has arrived yet (or thinking isn't shown), say so. */
 details.thinking .body:empty::before { content: 'Thinking…'; }
 details.tool { border-left: 2px solid var(--hot); }
+/* User-role profiles: no file and shell tool cards (transcript.js TECH_TOOLS) */
+.simple-chat details.tool.tech { display: none; }
 .tool-name { color: var(--hot); font-weight: 700; font-size: 11px; flex: none; }
 details.tool.error { border-left-color: var(--bad); }
 details.tool.error > summary, details.tool.error .tool-name { color: var(--bad); }

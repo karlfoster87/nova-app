@@ -15,6 +15,7 @@
 .task-day.today, .task-day[aria-pressed="true"] { background: var(--accent-soft); color: var(--bright); box-shadow: inset 2px 0 0 var(--accent); }
 .task-day.overdue > span:first-child { color: var(--bad); }
 .task-filter { border: 0; margin: 4px 0 0; padding: 10px 8px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; font-size: 12.5px; }
+.task-filter label { display: flex; align-items: center; gap: 8px; padding: 2px 2px; cursor: pointer; }
 .task-filter legend { color: var(--accent); font-size: 11px; padding: 0; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.14em; font-weight: 700; }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--line-bright); flex: none; vertical-align: -1px; margin-right: 8px; }
 .menu-item .swatch { margin-right: 8px; }
@@ -74,19 +75,27 @@
 .task-col-head small { color: var(--muted); width: 100%; font-size: 11px; }
 .task-col-head .badge { margin-left: 0; }
 .overdue-col .task-col-head strong { color: var(--bad); }
-.task-list { display: flex; flex-direction: column; gap: 6px; padding: 4px 8px 8px; min-height: 48px; overflow-y: auto; border-radius: var(--r-sm); }
+.task-list { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px 8px; min-height: 48px; overflow-y: auto; border-radius: var(--r-sm); }
 .task-list.drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
 .task-empty { color: var(--muted); font-size: 11.5px; margin: 4px; }
 .task-add { padding: 0 8px 10px; }
 .task-add input { width: 100%; border: 1px dashed var(--line-bright); background: transparent; border-radius: var(--r-sm); padding: 6px 9px; font-size: 12.5px; }
 .task-add input:focus { border-style: solid; border-color: var(--accent); background: var(--raised); outline: none; box-shadow: 0 0 10px -4px var(--glow); }
-.task { position: relative; background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 6px 6px 8px; cursor: grab; }
+/* The whole card drags (lib/drag.js); a long press lifts it on a touch screen, so the text
+   mustn't select or call up the system menu */
+.task { position: relative; background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 6px 6px 8px; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.task .inline-edit { user-select: text; -webkit-user-select: text; }
 .task:hover { border-color: var(--line-bright); }
 .task.overdue { border-left: 2px solid var(--bad); }
 .task.drag-source { opacity: 0.45; }
 .task.drop-inside > .task-row { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 2px; }
-.task.drop-before { box-shadow: 0 -2px 0 var(--accent), 0 -2px 8px var(--glow); }
-.task.drop-after { box-shadow: 0 2px 0 var(--accent), 0 2px 8px var(--glow); }
+/* Before and after marks sit in the gap between cards, where the card will land */
+.task.drop-before::before, .task.drop-after::after {
+  content: ''; position: absolute; left: -3px; right: -3px; height: 2px; border-radius: 1px; pointer-events: none;
+  background: var(--accent); box-shadow: 0 0 8px var(--glow);
+}
+.task.drop-before::before { top: -5px; }
+.task.drop-after::after { bottom: -5px; }
 /* The checkbox centres on the title's first line: both are sized from --task-line (a whole
    pixel, so the offset never rounds differently between browsers), as is the menu button. */
 .task-row { --task-line: 20px; display: flex; align-items: flex-start; gap: 6px; }

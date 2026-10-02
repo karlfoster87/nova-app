@@ -15,6 +15,10 @@ function parseManifest(text) {
 }
 
 export const AGENT_TOOLS = new Set(['Task', 'Agent']);
+// File and shell tools. Their cards are hidden from profiles with the User role (chat.css
+// .simple-chat), since the commands and file contents mean little to a non-technical reader;
+// admins still see them. Permission prompts for them always show.
+const TECH_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'NotebookRead', 'Bash', 'BashOutput', 'KillShell', 'KillBash', 'PowerShell', 'Glob', 'Grep', 'LS']);
 
 // Speaker icons for a turn's gutter.
 const TURN_ICONS = {
@@ -126,7 +130,7 @@ export class Transcript {
     const inputPre = h('pre', {}, JSON.stringify(block.input || {}, null, 2));
     const sub = AGENT_TOOLS.has(block.name) ? h('div', { class: 'subagent' }) : null;
     const body = h('div', { class: 'body' }, inputPre, sub);
-    const el = h('details', { class: 'block tool' }, h('summary', {}, h('span', { class: 'tool-name' }, block.name), detail, status), body);
+    const el = h('details', { class: `block tool${TECH_TOOLS.has(block.name) ? ' tech' : ''}` }, h('summary', {}, h('span', { class: 'tool-name' }, block.name), detail, status), body);
     const prev = this.tools.get(block.id); // the streamed version of this call, if any
     const entry = { el, status, body, sub, inputPre, detail, name: block.name, input: block.input || {}, done: false,
       startedAt: prev?.startedAt || Date.now() };

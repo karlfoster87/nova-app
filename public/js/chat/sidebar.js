@@ -7,6 +7,7 @@ import { h, svgIcon } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { openMenu } from '../lib/menu.js';
 import { confirmDialog } from '../lib/dialog.js';
+import { slideOnHover } from '../lib/slide.js';
 
 const ICONS = {
   more: 'M5 12h.01M12 12h.01M19 12h.01',
@@ -42,6 +43,11 @@ export function initSidebar(ctx) {
   let draggingCat = null;   // category id being dragged
   let pending = false;      // a render was skipped while editing or dragging
   let lastKey = '';
+
+  // Long chat titles slide to show their end while the row is hovered or focused.
+  const slideTitle = (title) => h('span', { class: 'slide' }, h('span', {}, title));
+  slideOnHover(list, '.chat-row');
+  slideOnHover(document.getElementById('recentList'), '.chat-row');
 
   const toast = h('p', { class: 'sidebar-toast', role: 'alert', hidden: true });
   list.after(toast);
@@ -136,7 +142,7 @@ export function initSidebar(ctx) {
       h('div', { class: 'cat-head' }, h('span', { class: 'cat-label' }, 'Recent')),
       h('div', { class: 'cat-chats' }, chats.map((chat) => {
         const item = h('button', { type: 'button', class: 'chat-item', 'aria-current': String(chat.id === state.current), title: chat.title },
-          icon('chat'), h('span', {}, chat.title), timeTag(chat.updated_at), h('i', { class: `dot ${dotFor(chat)}` }));
+          icon('chat'), slideTitle(chat.title), timeTag(chat.updated_at), h('i', { class: `dot ${dotFor(chat)}` }));
         item.addEventListener('click', () => ctx.openChat(chat.id));
         return h('div', { class: 'chat-row' }, item);
       })));
@@ -210,7 +216,7 @@ export function initSidebar(ctx) {
   function chatRow(chat) {
     const title = chat.title || 'New chat';
     const item = h('button', { type: 'button', class: 'chat-item', 'aria-current': String(chat.id === state.current), title },
-      icon('chat'), h('span', {}, title), timeTag(chat.title ? chat.updated_at : null), h('i', { class: `dot ${dotFor(chat)}` }));
+      icon('chat'), slideTitle(title), timeTag(chat.title ? chat.updated_at : null), h('i', { class: `dot ${dotFor(chat)}` }));
     item.addEventListener('click', () => ctx.openChat(chat.id));
     const more = h('button', { type: 'button', class: 'icon-btn chat-more', 'aria-haspopup': 'menu', 'aria-label': `Options for ${title}` }, icon('more'));
     const row = h('div', { class: 'chat-row', draggable: 'true', 'data-chat': chat.id }, item, more);
@@ -339,14 +345,18 @@ export function initSidebar(ctx) {
   }
 
   // ---- Rename and delete --------------------------------------------------
-  // Swaps an element for a text box. Enter or leaving the box saves; Esc cancels.
+  // Swaps an element for a text box. Enter or leaving the box saves; Esc cancels. The box
+  // wraps and grows with the name, so a long one can be read whole while it's edited.
   function inlineEdit(target, value, maxLength, save) {
     editing = true;
-    const input = h('input', { type: 'text', class: 'inline-edit', maxlength: String(maxLength), 'aria-label': 'New name' });
+    const input = h('textarea', { class: 'inline-edit wrap', rows: '1', maxlength: String(maxLength), 'aria-label': 'New name' });
     input.value = value;
+    const fit = () => { input.style.height = 'auto'; input.style.height = `${input.scrollHeight + 2}px`; };
+    input.addEventListener('input', fit);
     const row = target.closest('[draggable]');
     if (row) row.draggable = false;
     target.replaceWith(input);
+    fit();
     input.focus();
     input.select();
     let done = false;

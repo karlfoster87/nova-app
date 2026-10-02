@@ -1,7 +1,8 @@
 // The Chats view's controller: routes every server message to the right transcript and the
 // chat list, opens and starts chats, and tells the presence panel what Claude is doing.
 // Other views and the installed app reach chats through openChat and newChat.
-import { $ } from '../lib/dom.js';
+import { $, h } from '../lib/dom.js';
+import { slide, stopSlide } from '../lib/slide.js';
 import { store } from '../lib/store.js';
 import { TAB_ID } from '../lib/api.js';
 import { state, els, titleOf } from '../state.js';
@@ -157,10 +158,19 @@ function mountTranscript(t) { els.transcript.replaceChildren(t.el); }
 function renderChatHead() {
   const chat = state.current && state.chats.find((c) => c.id === state.current);
   const catId = chat ? chat.category_id : state.draft.categoryId;
-  els.chatTitle.textContent = chat?.title || 'New chat';
+  const title = chat?.title || 'New chat';
+  if (els.chatTitle.textContent !== title) {
+    els.chatTitle.replaceChildren(h('span', {}, title));
+    // A title too long for the heading slides once to show its end; hover or a tap shows it again.
+    requestAnimationFrame(() => slide(els.chatTitle, true));
+  }
   els.chatTitle.title = chat?.title || '';
   els.chatWhere.textContent = state.categories.find((c) => c.id === catId)?.name || '';
 }
+
+els.chatTitle.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') slide(els.chatTitle); });
+els.chatTitle.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') stopSlide(els.chatTitle); });
+els.chatTitle.addEventListener('click', () => slide(els.chatTitle, true));
 
 function stickToBottom(force = false) {
   const el = els.transcript;

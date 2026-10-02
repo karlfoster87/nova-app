@@ -118,6 +118,9 @@
 /* Keyboard hints mean nothing on a touch screen */
 @media (hover: none) { .hint { display: none; } }
 @media (hover: none) { .chat-more { opacity: 1; } .chat-row .chat-item { padding-right: 34px; } .chat-row .chat-item time { display: none; } }
+/* Renaming a chat: the options button would cover the end of the name, so it gives way */
+.chat-row:has(> .inline-edit) .chat-more { display: none; }
+.inline-edit.wrap { display: block; resize: none; overflow: hidden; line-height: 1.45; overflow-wrap: anywhere; }
 .inline-edit {
   flex: 1; min-width: 0; margin: 1px 0; padding: 5px 9px; border: 1px solid var(--accent); border-radius: var(--r-sm);
   background: var(--raised); font-size: 12.5px; box-shadow: 0 0 10px -4px var(--glow); outline: none;
