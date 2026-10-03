@@ -127,6 +127,13 @@ details.tool.error .tool-status { color: var(--bad); }
 .hint { color: var(--muted); font-size: 11px; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attach-btn { margin-left: -4px; }
 .attach-btn svg { stroke: var(--accent); }
+/* Voice (lib/speech.js): the microphone while listening, the speaker while spoken replies are on
+   and while a reply is being read. Voice messages in the hint show on phones too. */
+.voice-btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.voice-btn.listening { color: var(--bad); background: var(--bad-soft); animation: pulse 1.2s ease-in-out infinite; }
+.voice-btn.speaking { animation: pulse 1.2s ease-in-out infinite; }
+.composer .hint.live { display: block; color: var(--accent); white-space: normal; line-height: 1.4; } /* wraps, so it never widens the composer */
+.composer .hint.bad { color: var(--bad); }
 .icon-send { padding: 6px 12px; display: inline-grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
 .icon-send svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
 .icon-send:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }

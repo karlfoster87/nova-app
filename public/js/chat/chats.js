@@ -10,7 +10,8 @@ import { Transcript } from './transcript.js';
 import { connect, send } from './socket.js';
 import { logEvent } from './activity.js';
 import { picks, setPicks, renderPickers, setMode } from './pickers.js';
-import { syncComposer } from './composer.js';
+import { syncComposer, voiceOn } from './composer.js';
+import { speak } from '../lib/speech.js';
 import { initSidebar } from './sidebar.js';
 import { initPwa } from '../shell/pwa.js';
 import { renderUsage } from '../shell/header.js';
@@ -65,7 +66,11 @@ function onServer(m) {
     case 'created': {
       state.current = m.chatId;
       mountTranscript(transcriptFor(m.chatId));
-      if (state.pending) { send({ t: 'send', chatId: m.chatId, ...state.pending, ...picks() }); state.pending = null; }
+      if (state.pending) {
+        if (state.pending.voice) state.speakFor.add(m.chatId);
+        send({ t: 'send', chatId: m.chatId, ...state.pending, ...picks() });
+        state.pending = null;
+      }
       loadChats();
       return;
     }
@@ -102,7 +107,7 @@ function onServer(m) {
   const t = m.chatId && state.transcripts.get(m.chatId);
   if (m.chatId && m.chatId !== state.current && m.t === 'sdk' && m.msg.type === 'result') state.unread.add(m.chatId);
   switch (m.t) {
-    case 'sdk': t?.handleSdk(m.msg); break;
+    case 'sdk': t?.handleSdk(m.msg); speakReply(m); break;
     case 'user_echo': t?.addUser(m.text, m.attachments || []); break;
     case 'state':
       state.chatState.set(m.chatId, m.state);
@@ -119,6 +124,14 @@ function onServer(m) {
   }
   renderChatList();
   if (m.chatId === state.current) { syncComposer(); updatePresence(); }
+}
+
+// Replies to a message this tab sent with spoken replies on are read aloud as each part of the
+// answer arrives (sub-agents' messages aren't). Only this tab speaks, not every open device.
+function speakReply(m) {
+  if (m.msg.type !== 'assistant' || m.msg.parent_tool_use_id || !state.speakFor.has(m.chatId) || !voiceOn()) return;
+  const text = (m.msg.message?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n\n').trim();
+  if (text) speak(text);
 }
 
 // ---- Opening and starting chats -----------------------------------------------

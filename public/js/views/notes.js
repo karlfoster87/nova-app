@@ -9,6 +9,7 @@ import { renderMarkdown } from '../lib/markdown.js';
 import { openMenu } from '../lib/menu.js';
 import { confirmDialog } from '../lib/dialog.js';
 import { draggable } from '../lib/drag.js';
+import { canDictate, toggleDictation, stopDictation } from '../lib/speech.js';
 
 const COLORS = [['yellow', 'Yellow'], ['green', 'Green'], ['blue', 'Blue'], ['pink', 'Pink'], ['purple', 'Purple'], ['grey', 'Grey']];
 const COLOR_NAME = Object.fromEntries(COLORS);
@@ -17,7 +18,7 @@ const ICONS = {
   trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   shelve: 'M4 8h16v11H4zM3 4h18v4H3zM10 12h4',
   bold: 'M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z', italic: 'M19 4h-9M14 20H5M15 4 9 20',
-  list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01', cancel: 'M18 6 6 18M6 6l12 12', save: 'M20 6 9 17l-5-5', unshelve: 'M12 19V6m-6 6 6-6 6 6', palette: 'M12 3a9 9 0 1 0 0 18c1 0 1.5-.8 1.5-1.6 0-1.2-1-1.4-1-2.4 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4-4-7.5-9-7.5ZM7.5 11h.01M10 7.5h.01M14.5 7.5h.01'
+  list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01', mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM19 11a7 7 0 0 1-14 0M12 18v3', cancel: 'M18 6 6 18M6 6l12 12', save: 'M20 6 9 17l-5-5', unshelve: 'M12 19V6m-6 6 6-6 6 6', palette: 'M12 3a9 9 0 1 0 0 18c1 0 1.5-.8 1.5-1.6 0-1.2-1-1.4-1-2.4 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4-4-7.5-9-7.5ZM7.5 11h.01M10 7.5h.01M14.5 7.5h.01'
 };
 const BULLET = /^(\s*)[-*+] /;
 
@@ -181,6 +182,7 @@ export function init(ctx) {
       tool('bold', 'Bold (Ctrl+B)', () => wrap('**')),
       tool('italic', 'Italic (Ctrl+I)', () => wrap('*')),
       tool('list', 'Bullet list (Ctrl+Shift+8)', () => bullets()),
+      canDictate ? tool('mic', 'Dictate', (b) => dictate(b)) : null,
       h('span', { class: 'spacer' }),
       tool('cancel', 'Cancel changes', () => finish(false)),
       tool('save', 'Save and close (Ctrl+Enter)', () => finish(true))));
@@ -236,6 +238,7 @@ export function init(ctx) {
     const state = editing;
     if (!state) return;
     clearTimeout(state.timer);
+    stopDictation();
     editing = null;
     const text = keep ? state.input.value : state.original;
     if (state.fresh && !text.trim()) { await remove(state.n, { quiet: true }); return; }
@@ -264,6 +267,21 @@ export function init(ctx) {
       put(input, a, b, mark + v.slice(a, b) + mark);
       input.setSelectionRange(a + m, b + m);
     }
+  }
+
+  // Speech to text at the cursor (lib/speech.js). Typing, or closing the note, stops it.
+  function dictate(button) {
+    const input = editing?.input;
+    if (!input) return;
+    input.focus();
+    toggleDictation(input, {
+      onState({ listening, error }) {
+        button.classList.toggle('listening', listening);
+        button.setAttribute('aria-pressed', String(listening));
+        if (error) setStatus(error, true);
+        else setStatus(listening ? 'Listening. Speak now; press any key or the microphone to stop.' : '');
+      }
+    });
   }
 
   // Replaces a range of the text box. insertText keeps the browser's undo working and fires

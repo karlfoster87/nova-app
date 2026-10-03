@@ -4,6 +4,7 @@
 import { $ } from '../lib/dom.js';
 import { isAdmin } from './forms.js';
 import { fillProfile } from './profile.js';
+import { fillVoice } from './voice.js';
 import { loadPermissions } from './permissions.js';
 import { loadProfiles } from './profiles.js';
 import { loadClaude } from './claude.js';
@@ -26,6 +27,7 @@ export function applyRole() {
 export function openSettings(tab = 'profile') {
   applyRole();
   fillProfile();
+  fillVoice();
   showTab(tab);
   if (!dlg.open) dlg.showModal();
 }

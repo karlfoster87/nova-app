@@ -52,7 +52,7 @@ async function handle(profile, ws, raw) {
       const row = ownedChat(profile, m.chatId);
       if (!row) return reply({ t: 'error', message: 'Chat not found.' });
       try {
-        await sendMessage(profile, row, { text: String(m.text || '').trim(), attachments: m.attachments, model, effort, mode, clientId: m.clientId });
+        await sendMessage(profile, row, { text: String(m.text || '').trim(), attachments: m.attachments, voice: m.voice === true, model, effort, mode, clientId: m.clientId });
       } catch (err) {
         if (!(err instanceof UserError)) throw err;
         refuse(err.message);

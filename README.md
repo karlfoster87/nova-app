@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.3.8 · Node 22.13+ · four dependencies · no build step
+Version 0.4.0 · Node 22.13+ · four dependencies · no build step
 
 ## Why Nova
 
@@ -25,6 +25,10 @@ Replies stream in with markdown, collapsible thinking, and every tool call with 
 Read and edit the notes Claude works from. Markdown renders with `[[wiki links]]`, embeds, images and video; HTML reports render safely in a sandbox. Upload files and folders, and if the brain is a git repository, every save is committed.
 
 ![The Brain view: a project note with properties, a sprint table and a checklist](docs/screenshots/brain.png)
+
+### Talk to it
+
+Dictate instead of typing: the microphone beside the message box, and on any sticky note you're editing, turns speech into text at the cursor. Turn on spoken replies with the speaker button and Nova reads Claude's answers aloud, and Claude keeps them short and conversational while it's on, so it works hands-free on a phone. Pick the voice and speed in Settings. It uses the browser's own speech features: Edge and Chrome do both (their dictation sends the audio to Microsoft or Google to turn it into text), Safari mostly, Firefox only reads aloud. Dictation needs https or this computer, so it's not offered over a plain-http network address.
 
 ### Tasks and notes, beside the chat
 

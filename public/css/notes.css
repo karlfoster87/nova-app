@@ -36,6 +36,7 @@
 .note-edit-tools, .note.editing .note-tools { display: none; }
 .note.editing .note-edit-tools { display: flex; opacity: 1; border-top: 1px solid var(--line); }
 .note-edit-tools .icon-btn:hover { color: var(--accent); }
+.note-edit-tools .icon-btn.listening { color: var(--bad); background: var(--bad-soft); animation: pulse 1.2s ease-in-out infinite; }
 .note:hover .note-tools, .note:focus-within .note-tools { opacity: 1; }
 @media (hover: none) { .note-tools { opacity: 1; } }
 .note-tools .icon-btn { padding: 5px; }

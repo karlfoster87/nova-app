@@ -2,8 +2,12 @@
 // Files upload as soon as they're added, so sending is instant; each shows as a capsule with
 // its progress, and can be removed until the message goes. A message to a chat that doesn't
 // exist yet asks the server for one first (chats.js sends it once 'created' arrives).
+// Voice: the microphone dictates into the box, and the speaker turns on spoken replies, which
+// also asks Claude for short answers (the server adds a note to each message sent that way).
 import { $ } from '../lib/dom.js';
 import { fileChip } from '../lib/widgets.js';
+import { store } from '../lib/store.js';
+import { canDictate, canSpeak, toggleDictation, stopDictation, stopSpeaking, unlockSpeech, onSpeaking, isSpeaking } from '../lib/speech.js';
 import { state, els } from '../state.js';
 import { send } from './socket.js';
 import { picks } from './pickers.js';
@@ -26,13 +30,17 @@ function submit() {
   const text = els.input.value.trim();
   const attachments = state.attachments.filter((a) => a.id).map((a) => a.id);
   if ((!text && !attachments.length) || els.send.disabled) return;
+  stopDictation();
+  stopSpeaking();
   els.input.value = '';
   commands.close();
   autoGrow();
   state.attachments = []; // ones that failed to upload are dropped with the rest
   renderAttachments();
-  if (!state.current) { state.pending = { text, attachments }; send({ t: 'new', categoryId: state.draft.categoryId, ...picks() }); }
-  else send({ t: 'send', chatId: state.current, text, attachments, ...picks() });
+  const voice = voiceOn();
+  if (!state.current) { state.pending = { text, attachments, voice }; send({ t: 'new', categoryId: state.draft.categoryId, ...picks() }); return; }
+  state.speakFor[voice ? 'add' : 'delete'](state.current);
+  send({ t: 'send', chatId: state.current, text, attachments, voice, ...picks() });
 }
 
 els.composer.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
@@ -41,7 +49,59 @@ els.input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
 });
 els.input.addEventListener('input', autoGrow);
-els.stop.addEventListener('click', () => send({ t: 'interrupt', chatId: state.current }));
+els.stop.addEventListener('click', () => { stopSpeaking(); send({ t: 'interrupt', chatId: state.current }); });
+
+// ---- Voice ----------------------------------------------------------------------
+// Spoken replies are a per-browser switch, so a phone in the car can talk while the desktop
+// stays quiet. While a reply is being read, the speaker button stops it instead of switching.
+
+const hint = $('hint'), HINT = hint.textContent;
+export const voiceOn = () => canSpeak && store.get('voiceReplies', false) === true;
+
+// A message in the hint line; with ms, it goes back to the usual hint after that long.
+let hintTimer;
+function showHint(text = HINT, bad = false, ms = 0) {
+  clearTimeout(hintTimer);
+  if (ms) hintTimer = setTimeout(() => showHint(), ms);
+  hint.textContent = text;
+  hint.classList.toggle('bad', bad);
+  hint.classList.toggle('live', text !== HINT);
+  hint.title = text === HINT ? '' : text;
+}
+
+els.mic.hidden = !canDictate;
+els.mic.addEventListener('mousedown', (e) => e.preventDefault()); // keep the cursor in the box
+els.mic.addEventListener('click', () => {
+  stopSpeaking();
+  els.input.focus();
+  toggleDictation(els.input, {
+    onState({ listening, error }) {
+      els.mic.setAttribute('aria-pressed', String(listening));
+      els.mic.classList.toggle('listening', listening);
+      showHint(error || (listening ? 'Listening. Speak now; press any key or the microphone to stop.' : HINT), !!error);
+    }
+  });
+});
+
+function syncSpeak() {
+  const on = voiceOn(), talking = isSpeaking();
+  els.speak.setAttribute('aria-pressed', String(on));
+  els.speak.classList.toggle('speaking', talking);
+  const label = talking ? 'Stop reading this reply' : on ? 'Spoken replies are on: Claude keeps replies short and reads them aloud. Click to turn off.' : 'Speak replies: Claude keeps replies short and reads them aloud';
+  els.speak.title = label;
+  els.speak.setAttribute('aria-label', talking ? 'Stop reading' : 'Speak replies');
+}
+els.speak.hidden = !canSpeak;
+els.speak.addEventListener('click', () => {
+  if (isSpeaking()) { stopSpeaking(); return; }
+  const on = !voiceOn();
+  store.set('voiceReplies', on);
+  if (on) unlockSpeech();
+  syncSpeak();
+  showHint(on ? 'Spoken replies on: replies to your next messages are short and read aloud.' : 'Spoken replies off.', false, 4000);
+});
+onSpeaking(syncSpeak);
+syncSpeak();
 
 // ---- Attachments ----------------------------------------------------------
 

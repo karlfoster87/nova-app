@@ -63,7 +63,21 @@ export function deleteChat(profile, id) {
 // Sends a message (text, attached uploads, or both) to a chat, starting or resuming its
 // process. The first message also names the chat. Every tab of the profile gets an echo;
 // clientId lets the sending tab recognise its own.
-export async function sendMessage(profile, row, { text, attachments, model, effort, mode, clientId }) {
+// Added to each message sent with spoken replies on, so that reply is short and reads well
+// aloud. It's per message rather than in the system prompt, which is fixed when the Claude
+// process starts: switching voice on or off then takes effect on the next message, with no
+// restart. The transcript leaves it out when showing saved history (chat/transcript.js).
+const VOICE_NOTE = `<voice-reply>
+The user is listening rather than reading: your reply to this message will be read aloud by text-to-speech. Write for the ear:
+- Be brief: usually one to three short sentences, well under 80 words, unless they ask for detail.
+- Plain spoken sentences only: no headings, lists, tables, code blocks, links, file paths, symbols or emoji.
+- Give the answer first. Say numbers, dates and times the way a person would.
+- Keep any text between tool calls to a few words, or none.
+- If the full answer is long, give the gist and offer to put the detail in a note or file.
+This applies to this message only. Messages without this note get your usual written replies.
+</voice-reply>`;
+
+export async function sendMessage(profile, row, { text, attachments, voice, model, effort, mode, clientId }) {
   const files = claimUploads(profile, attachments);
   if (!text && !files.length) return;
   if (signedIn() === false) {
@@ -75,7 +89,10 @@ export async function sendMessage(profile, row, { text, attachments, model, effo
   if (runner.state === 'running') throw new UserError('Claude is still responding. Stop it or wait before sending.');
   if (mode && runner.mode !== mode) await runner.setMode(mode);
   else if (mode && row.permission_mode !== mode) q.setChatMode.run(mode, row.id, profile);
-  runner.send(messageContent(profile, row.id, text, files));
+  let content = messageContent(profile, row.id, text, files);
+  // A slash command must stay the whole message for Claude Code to run it.
+  if (voice && !text.startsWith('/')) content = [...(typeof content === 'string' ? [{ type: 'text', text: content }] : content), { type: 'text', text: VOICE_NOTE }];
+  runner.send(content);
   if (!row.title) {
     const title = text || `Files: ${files.map((f) => f.name).join(', ')}`;
     q.renameChat.run(title.replace(/\s+/g, ' ').slice(0, 80), row.id, profile);

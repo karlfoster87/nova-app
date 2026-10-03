@@ -12,7 +12,8 @@ export const state = {
   unread: new Set(),      // chats that finished while not open
   transcripts: new Map(), // chatId -> Transcript
   current: null,          // chatId or null for an unsent new chat
-  pending: null,          // { text, attachments } of a new chat's first message, waiting for its id
+  pending: null,          // { text, attachments, voice } of a new chat's first message, waiting for its id
+  speakFor: new Set(),    // chats whose last message this tab sent with spoken replies on
   attachments: [],        // files in the composer: { key, name, size, type, id?, progress?, error?, xhr? }
   draft: { categoryId: null }, // where the unsent new chat will be filed
   ws: null
@@ -22,7 +23,7 @@ export const els = {
   chatList: $('chatList'), transcript: $('transcript'),
   model: $('modelSelect'), effort: $('effortSelect'), effortWrap: $('effortWrap'), mode: $('modeSelect'), usage: $('usage'),
   input: $('input'), composer: $('composer'), send: $('sendBtn'), stop: $('stopBtn'),
-  attachList: $('attachList'), attachBtn: $('attachBtn'), fileInput: $('fileInput'),
+  attachList: $('attachList'), attachBtn: $('attachBtn'), fileInput: $('fileInput'), mic: $('micBtn'), speak: $('speakBtn'),
   presence: $('presence'), sidebar: $('sidebar'),
   chatTitle: $('chatTitle'), chatWhere: $('chatWhere'), chatState: $('chatState'), link: $('linkState')
 };

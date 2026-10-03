@@ -355,7 +355,8 @@ export class Transcript {
       else if (m.type === 'user' && !m.parent_tool_use_id) {
         if (typeof content === 'string') this.addUser(content, [], whenOf(m));
         else if (Array.isArray(content)) {
-          const texts = content.filter((c) => c.type === 'text').map((c) => c.text);
+          // The spoken-replies note (server/chat/chats.js VOICE_NOTE) is for Claude, not the reader.
+          const texts = content.filter((c) => c.type === 'text' && !c.text.startsWith('<voice-reply>')).map((c) => c.text);
           const manifest = texts.find((t) => t.startsWith('<attachments>'));
           const files = manifest ? parseManifest(manifest) : [];
           let text = texts.filter((t) => t !== manifest).join('\n').trim();
