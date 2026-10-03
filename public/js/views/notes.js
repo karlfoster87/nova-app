@@ -1,7 +1,9 @@
 // Notes view: sticky notes in a wrapping grid, in an order the user sets.
 // Click a note to edit it in place; it saves as you type and when you leave it. Markdown in
 // a note renders through the transcript's pipeline when it isn't being edited. Active notes
-// come first and are counted; long-standing ones sit in their own section below, uncounted.
+// come first and are counted; then notes shown to everyone (any profile's, which anyone with
+// edit access can change, in one shared order); long-standing ones sit last, uncounted.
+// Shared notes move with their buttons only: dragging is for the profile's own notes.
 import { h, svgIcon } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { store } from '../lib/store.js';
@@ -17,6 +19,8 @@ const ICONS = {
   menu: 'M4 6h16M4 12h16M4 18h16', earlier: 'm15 6-6 6 6 6', later: 'm9 6 6 6-6 6',
   trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   shelve: 'M4 8h16v11H4zM3 4h18v4H3zM10 12h4',
+  share: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM2.5 20c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5M16 4.3a3.5 3.5 0 0 1 0 6.4M18 14.8c2.1.6 3.5 2.6 3.5 5.2',
+  unshare: 'M12 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM5.5 20c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5',
   bold: 'M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z', italic: 'M19 4h-9M14 20H5M15 4 9 20',
   list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01', mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM19 11a7 7 0 0 1-14 0M12 18v3', cancel: 'M18 6 6 18M6 6l12 12', save: 'M20 6 9 17l-5-5', unshelve: 'M12 19V6m-6 6 6-6 6 6', palette: 'M12 3a9 9 0 1 0 0 18c1 0 1.5-.8 1.5-1.6 0-1.2-1-1.4-1-2.4 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4-4-7.5-9-7.5ZM7.5 11h.01M10 7.5h.01M14.5 7.5h.01'
 };
@@ -51,7 +55,10 @@ export function init(ctx) {
   const longGrid = h('div', { class: 'note-grid' });
   const longSection = h('section', { class: 'note-long', 'aria-labelledby': 'notesLongTitle' },
     h('h3', { id: 'notesLongTitle' }, 'Long-standing ', h('span', { class: 'muted' }, 'not counted')), longGrid);
-  const board = h('section', { class: 'note-board' }, grid, longSection);
+  const sharedGrid = h('div', { class: 'note-grid' });
+  const sharedSection = h('section', { class: 'note-shared', 'aria-labelledby': 'notesSharedTitle' },
+    h('h3', { id: 'notesSharedTitle' }, 'Shown to everyone ', h('span', { class: 'muted' }, 'every profile sees these and can change them')), sharedGrid);
+  const board = h('section', { class: 'note-board' }, grid, sharedSection, longSection);
   const status = h('p', { class: 'view-status', role: 'status' });
   main.append(h('header', { class: 'topbar notes-bar' },
     h('button', { type: 'button', class: 'icon-btn menu-btn', 'aria-label': 'Show the sidebar' }, icon('menu')),
@@ -102,8 +109,15 @@ export function init(ctx) {
     render();
   }
 
+  async function setShared(n, shared) {
+    await update(n, { shared });
+    setStatus(shared ? 'Every profile now sees this note and can change it.' : 'Only you see this note now.');
+    render();
+  }
+
   async function remove(n, { quiet = false } = {}) {
-    if (!quiet && !(await confirmDialog({ title: 'Delete this note?', message: 'This can\'t be undone.', danger: true, confirm: 'Delete note' }))) return;
+    const message = n.shared ? `It's shown to everyone, so it goes for every profile${n.mine ? '' : `, including ${n.owner}`}. This can't be undone.` : 'This can\'t be undone.';
+    if (!quiet && !(await confirmDialog({ title: 'Delete this note?', message, danger: true, confirm: 'Delete note' }))) return;
     try {
       await api('DELETE', `/api/notes/${n.id}`);
       notes = notes.filter((x) => x.id !== n.id);
@@ -117,18 +131,21 @@ export function init(ctx) {
     if (editing || dragging) { stale = true; return; }
     stale = false;
     const list = filter ? notes.filter((n) => n.color === filter) : notes;
-    const active = list.filter((n) => n.active), long = list.filter((n) => !n.active);
-    const activeCount = notes.filter((n) => n.active).length;
+    const own = list.filter((n) => !n.shared), shared = list.filter((n) => n.shared);
+    const active = own.filter((n) => n.active), long = own.filter((n) => !n.active);
+    const activeCount = notes.filter((n) => n.active && !n.shared).length;
     count.textContent = String(activeCount);
     count.title = `${activeCount} active ${activeCount === 1 ? 'note' : 'notes'}`;
     grid.replaceChildren(...active.map((n) => card(n, active)));
+    sharedGrid.replaceChildren(...shared.map((n) => card(n, shared)));
+    sharedSection.hidden = !shared.length;
     longGrid.replaceChildren(...long.map((n) => card(n, long)));
     // An empty long-standing section only shows during a drag, as somewhere to drop.
     if (!long.length) longGrid.append(h('p', { class: 'note-drop-hint' }, 'Drop a note here to make it long-standing.'));
     longSection.hidden = !long.length;
     if (!active.length) {
-      // With long-standing notes below, the notice stays small so they sit near the top.
-      grid.append(h('div', { class: `empty note-empty${long.length ? ' compact' : ''}` },
+      // With other notes below, the notice stays small so they sit near the top.
+      grid.append(h('div', { class: `empty note-empty${long.length || shared.length ? ' compact' : ''}` },
         h('h2', {}, filter ? `No active ${COLOR_NAME[filter].toLowerCase()} notes` : long.length ? 'No active notes' : 'No notes yet'),
         h('p', {}, canEdit() ? 'Use New note to add one. Drag notes to put them in any order.' : 'Notes you add will show here.')));
     }
@@ -147,13 +164,15 @@ export function init(ctx) {
     colorList.replaceChildren(row(null, 'All notes'), ...COLORS.map(([c, label]) => row(c, label)));
   }
 
-  // section: the notes shown alongside this one (active or long-standing), for moving within it.
+  // section: the notes shown alongside this one (active, shared or long-standing), for moving within it.
   function card(n, section) {
     const body = h('div', { class: 'note-body prose' });
     if (n.text.trim()) body.innerHTML = renderMarkdown(noteMarkdown(n.text), { breaks: true }); // marked, then DOMPurify
     else body.append(h('p', { class: 'note-placeholder' }, canEdit() ? 'Empty note. Click to write.' : 'Empty note.'));
-    const el = h('article', { class: `note note-${n.color}${n.active ? '' : ' long'}`, 'data-id': n.id,
-      'aria-label': `${COLOR_NAME[n.color]} ${n.active ? 'note' : 'long-standing note'}` }, body);
+    const owner = n.shared ? h('p', { class: 'note-owner' }, icon('share'), n.mine ? 'Shown to everyone' : `Shared by ${n.owner}`) : null;
+    const kind = n.shared ? 'shared note' : n.active ? 'note' : 'long-standing note';
+    const el = h('article', { class: `note note-${n.color}${n.active || n.shared ? '' : ' long'}`, 'data-id': n.id,
+      'aria-label': `${COLOR_NAME[n.color]} ${kind}${n.shared && !n.mine ? ` from ${n.owner}` : ''}` }, owner, body);
     if (!canEdit()) return el;
 
     body.tabIndex = 0;
@@ -173,9 +192,13 @@ export function init(ctx) {
         action: async () => { await update(n, { color: c }); render(); } })))),
       tool('earlier', 'Move earlier', () => move(n.id, order[i - 1]), i <= 0),
       tool('later', 'Move later', () => move(n.id, order[i + 2] ?? null), i >= order.length - 1),
-      n.active
+      n.shared ? null : n.active
         ? tool('shelve', 'Mark as long-standing (not counted)', () => setActive(n, false))
         : tool('unshelve', 'Mark as active', () => setActive(n, true)),
+      // Only the profile that shared a note can take it back; anyone can share their own.
+      !n.mine ? null : n.shared
+        ? tool('unshare', 'Stop showing to everyone', () => setShared(n, false))
+        : tool('share', 'Show to everyone (every profile can see and change it)', () => setShared(n, true)),
       h('span', { class: 'spacer' }),
       tool('trash', 'Delete note', () => remove(n))));
     el.append(h('footer', { class: 'note-tools note-edit-tools' },
@@ -188,7 +211,7 @@ export function init(ctx) {
       tool('save', 'Save and close (Ctrl+Enter)', () => finish(true))));
     // The editing buttons mustn't take focus, or the text box would lose its selection.
     for (const b of el.querySelectorAll('.note-edit-tools button')) b.addEventListener('mousedown', (e) => e.preventDefault());
-    dragNote(el, n);
+    if (!n.shared) dragNote(el, n);
     return el;
   }
 
@@ -338,7 +361,7 @@ export function init(ctx) {
 
   function dropAt(x, y, under) {
     const section = under?.closest('.note-grid, .note-long');
-    if (!section || !board.contains(section)) return null;
+    if (!section || !board.contains(section) || sharedSection.contains(section)) return null; // shared notes move by their buttons
     const gridEl = section.classList.contains('note-long') ? longGrid : section;
     const active = gridEl === grid;
     let el = under.closest('.note');
@@ -383,7 +406,7 @@ export function init(ctx) {
         }
         // Sections share one order, so the very end is also the end of this section.
         if (target.where === 'end') return move(id, null);
-        const order = notes.map((x) => x.id).filter((x) => x !== id);
+        const order = notes.filter((x) => !x.shared).map((x) => x.id).filter((x) => x !== id);
         move(id, target.where === 'before' ? target.n.id : order[order.indexOf(target.n.id) + 1] ?? null);
       },
       end(dropped) {

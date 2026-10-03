@@ -69,6 +69,7 @@ addColumn('profiles', 'pin_hash', 'TEXT');
 addColumn('profiles', 'access', 'TEXT');     // JSON { view: level }, null = defaults
 addColumn('profiles', 'prefs', 'TEXT');      // JSON personal preferences, null = defaults
 addColumn('notes', 'active', 'INTEGER NOT NULL DEFAULT 1'); // 0 = long-standing
+addColumn('notes', 'shared', 'INTEGER NOT NULL DEFAULT 0'); // 1 = shown to every profile (views/notes.js)
 
 // Rows from before chats were tied to a brain belong to whichever brain is active the
 // first time this runs.
@@ -175,10 +176,16 @@ export const q = {
     DELETE FROM tasks WHERE profile = ?2 AND id IN (SELECT id FROM sub)`),
 
   // Notes: a manual order in position, lowest first.
-  notes: db.prepare('SELECT id, text, color, active, position, created_at, updated_at FROM notes WHERE profile = ? ORDER BY position, created_at'),
-  activeNotes: db.prepare('SELECT COUNT(*) AS n FROM notes WHERE profile = ? AND active = 1'),
+  // A profile's own notes leave out the ones it shares; shared notes from every profile have one
+  // order of their own, in the same position column.
+  notes: db.prepare('SELECT id, profile, text, color, active, shared, position, created_at, updated_at FROM notes WHERE profile = ? AND shared = 0 ORDER BY position, created_at'),
+  sharedNotes: db.prepare('SELECT id, profile, text, color, active, shared, position, created_at, updated_at FROM notes WHERE shared = 1 ORDER BY position, created_at'),
+  activeNotes: db.prepare('SELECT COUNT(*) AS n FROM notes WHERE profile = ? AND active = 1 AND shared = 0'),
   note: db.prepare('SELECT * FROM notes WHERE id = ?'),
-  firstNotePosition: db.prepare('SELECT COALESCE(MIN(position), 1) - 1 AS n FROM notes WHERE profile = ?'),
+  firstNotePosition: db.prepare('SELECT COALESCE(MIN(position), 1) - 1 AS n FROM notes WHERE profile = ? AND shared = 0'),
+  firstSharedPosition: db.prepare('SELECT COALESCE(MIN(position), 1) - 1 AS n FROM notes WHERE shared = 1'),
+  setNoteShared: db.prepare('UPDATE notes SET shared = ?, position = ?, updated_at = ? WHERE id = ? AND profile = ?'),
+  setSharedNotePosition: db.prepare('UPDATE notes SET position = ? WHERE id = ? AND shared = 1'),
   addNote: db.prepare('INSERT INTO notes (id, profile, text, color, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
   updateNote: db.prepare('UPDATE notes SET text = ?, color = ?, active = ?, updated_at = ? WHERE id = ? AND profile = ?'),
   setNotePosition: db.prepare('UPDATE notes SET position = ? WHERE id = ? AND profile = ?'),

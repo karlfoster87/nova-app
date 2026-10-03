@@ -23,6 +23,10 @@
 .note.drop-after::before { right: -9px; }
 .note-body { flex: 1; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; padding: 12px 14px 4px; font-size: 12.5px; overflow-wrap: anywhere; cursor: text; border-radius: var(--r-md) var(--r-md) 0 0; }
 .note-body:focus-visible { outline-offset: -2px; }
+/* A note shown to everyone says so above its text, and who shared it when it was someone else. */
+.note-owner { display: flex; align-items: center; gap: 5px; padding: 9px 14px 0; font-size: 11px; color: var(--muted); }
+.note-owner svg { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.note-owner + .note-body { padding-top: 4px; }
 .note-placeholder { color: var(--muted); font-style: italic; }
 /* The editing box always opens at its full height (less on short screens), so it doesn't
    jump about as lines are added or removed; longer text scrolls inside it */
@@ -46,15 +50,15 @@
 /* No active notes but long-standing ones below: a small notice, so they sit near the top */
 .note-empty.compact { margin-top: 0; padding: 14px 0 4px; }
 .note-empty.compact h2 { font-size: 13px; }
-.note-grid:has(.note-empty.compact) + .note-long { margin-top: 16px; }
+.note-grid:has(.note-empty.compact) + .note-long, .note-grid:has(.note-empty.compact) + .note-shared { margin-top: 16px; }
 /* Section drops: the space around the notes takes a note to the end of that section */
 .note-grid.drop-target, .note-long.drop-target { background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
 .note-long.drop-target { border-top-color: var(--accent); }
 .note-drop-hint { grid-column: 1 / -1; margin: 0; padding: 22px; text-align: center; font-size: 12px; color: var(--muted); border: 1px dashed var(--line-bright); border-radius: var(--r-md); }
 /* Long-standing notes: their own section, quieter, and left out of the count */
-.note-long { margin-top: 30px; padding-top: 14px; border-top: 1px dashed var(--line-bright); }
-.note-long h3 { margin: 0 0 12px; font-size: 12.5px; font-weight: 700; color: var(--accent); }
-.note-long h3 .muted { font-weight: 400; margin-left: 6px; text-transform: none; letter-spacing: 0; }
+.note-long, .note-shared { margin-top: 30px; padding-top: 14px; border-top: 1px dashed var(--line-bright); }
+.note-long h3, .note-shared h3 { margin: 0 0 12px; font-size: 12.5px; font-weight: 700; color: var(--accent); }
+.note-long h3 .muted, .note-shared h3 .muted { font-weight: 400; margin-left: 6px; text-transform: none; letter-spacing: 0; }
 .note.long { border-style: dashed; box-shadow: none; min-height: 100px; }
 .note.long::after { display: none; }
 .note.long .note-body { font-size: 12px; }

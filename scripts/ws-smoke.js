@@ -593,6 +593,34 @@ async function tasksAndNotes(a, b, c) {
   check(cBadges && !('notes' in cBadges) && 'tasks' in cBadges, 'badges leave out views a profile can\'t read');
   check((await badges(b))?.tasks === 0 && (await badges(b))?.notes === 0, 'badges count only the profile\'s own tasks and notes');
 
+  // Shared notes: shown to every profile with notes access, changed or deleted by anyone who
+  // can edit notes, taken back only by the profile that shared them. smoke-c has no notes access.
+  const noteList = async (cookie) => (await http('GET', '/api/notes', { cookie })).data || [];
+  const patchNote = (cookie, id, body) => http('PATCH', `/api/notes/${id}`, { cookie, body });
+  const shared = (await patchNote(a, n2.id, { shared: true })).data;
+  check(shared?.shared === true && shared.mine === true, 'a profile shows its note to everyone');
+  const seen = (await noteList(b)).find((n) => n.id === n2.id);
+  check(seen?.shared && seen.owner === 'smoke-a' && seen.mine === false, 'another profile sees the shared note, and who shared it');
+  check((await noteList(a)).filter((n) => n.id === n2.id).length === 1, 'the owner sees a shared note once');
+  check((await badges(a))?.notes === 0 && (await badges(b))?.notes === 0, 'shared notes aren\'t counted in anyone\'s badge');
+  check((await http('GET', '/api/notes', { cookie: c })).status === 403, 'a profile without notes access still sees no notes');
+  const sockB = await connect({ cookie: b });
+  const heard = next(sockB, (m) => m.t === 'notes_changed').catch(() => null);
+  await patchNote(a, n2.id, { text: 'shopping: milk' });
+  check(await heard, 'a change to a shared note reaches other profiles\' tabs');
+  sockB.close();
+  check((await patchNote(b, n2.id, { text: 'shopping: milk, bread', color: 'green' })).data?.color === 'green', 'another profile changes a shared note');
+  check((await patchNote(b, n2.id, { shared: false })).status === 403, 'only the profile that shared a note can stop sharing it');
+  const bNote = (await http('POST', '/api/notes', { cookie: b, body: { text: 'from b' } })).data;
+  await patchNote(b, bNote.id, { shared: true });
+  check((await noteList(a)).filter((n) => n.shared).map((n) => n.id).join() === [bNote.id, n2.id].join(), 'a newly shared note goes first among the shared ones');
+  const sharedOrder = (await http('POST', `/api/notes/${bNote.id}/move`, { cookie: a, body: { beforeId: null } })).data;
+  check(sharedOrder?.filter((n) => n.shared).map((n) => n.id).join() === [n2.id, bNote.id].join(), 'anyone reorders the shared notes, in one order for everyone');
+  check((await http('DELETE', `/api/notes/${bNote.id}`, { cookie: a })).status === 200 && !(await noteList(b)).some((n) => n.id === bNote.id),
+    'another profile deletes a shared note, for everyone');
+  check((await patchNote(a, n2.id, { shared: false })).data?.shared === false && !(await noteList(b)).some((n) => n.id === n2.id)
+    && (await patchNote(b, n2.id, { text: 'x' })).status === 404, 'once taken back, a note is private again');
+
   // Personal preferences: each profile sets its own.
   check((await http('GET', '/api/me', { cookie: b })).data?.prefs?.hideWeekends === false, 'hide weekends is off by default');
   check((await http('PATCH', '/api/profiles/smoke-b', { cookie: b, body: { prefs: { hideWeekends: true } } })).status === 200

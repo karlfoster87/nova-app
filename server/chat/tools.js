@@ -12,7 +12,7 @@ import { hub } from '../core/hub.js';
 import { UserError } from '../core/errors.js';
 import { can } from '../accounts/access.js';
 import { listTasks, createTask, updateTask, moveTask, deleteTask } from '../views/tasks.js';
-import { listNotes, createNote, updateNote, moveNote, deleteNote } from '../views/notes.js';
+import { listNotes, createNote, updateNote, moveNote, deleteNote, isSharedNote } from '../views/notes.js';
 
 export const READ_TOOLS = ['mcp__nova__list_tasks', 'mcp__nova__list_notes'];
 const COLORS = ['yellow', 'green', 'blue', 'pink', 'purple', 'grey'];
@@ -37,7 +37,8 @@ function guarded(profile, run) {
 }
 
 // Open Tasks and Notes views (and the tab badges) reload, as after a change in another tab.
-const changed = (profile, t) => hub.toProfile(profile, { t, from: 'claude' });
+// A shared note's change goes to every profile, as from the Notes view (routes/views.js).
+const changed = (profile, t, everyone = false) => (everyone ? hub.toAll({ t, from: 'claude' }) : hub.toProfile(profile, { t, from: 'claude' }));
 
 // Tasks as a tree: each top-level task with its subtasks nested, days in order, Unscheduled last.
 function taskTree(list) {
@@ -60,7 +61,7 @@ function taskTree(list) {
     .map(node);
 }
 
-const noteShape = (n) => ({ id: n.id, text: n.text, color: n.color, longStanding: !n.active });
+const noteShape = (n) => ({ id: n.id, text: n.text, color: n.color, longStanding: !n.active, ...(n.shared ? { sharedBy: n.owner } : {}) });
 
 const id = z.string().describe('The id, from list_tasks or list_notes.');
 const day = z.string().describe('A date as YYYY-MM-DD.');
@@ -108,10 +109,16 @@ function taskTools(profile) {
 
 function noteTools(profile) {
   const g = (run) => guarded(profile, run);
-  const write = (run) => g(async (args) => { const out = await run(args); changed(profile, 'notes_changed'); return out; });
+  const write = (run) => g(async (args) => {
+    const wasShared = isSharedNote(args.id);
+    const out = await run(args);
+    changed(profile, 'notes_changed', wasShared || out?.sharedBy !== undefined);
+    return out;
+  });
   const tools = [
     tool('list_notes', 'List the user\'s sticky notes in Nova\'s Notes view, in their order. Text is markdown. ' +
-      'Long-standing notes are kept for reference; the rest are active.',
+      'Long-standing notes are kept for reference; the rest are active. Notes with sharedBy are shown to every profile in Nova; ' +
+      'anyone can change or delete them, so only change them when the user means the shared note.',
     {},
     g(() => { const notes = listNotes(profile).map(noteShape); return notes.length ? notes : 'There are no sticky notes.'; }),
     { annotations: { readOnlyHint: true }, searchHint: 'sticky notes memo board' })
@@ -126,13 +133,15 @@ function noteTools(profile) {
         return noteShape(longStanding ? updateNote(profile, note.id, { active: false }) : note);
       }),
       { searchHint: 'create new sticky note' }),
-    tool('update_note', 'Change a sticky note\'s text, colour, or whether it\'s long-standing. Text replaces the whole note.',
-      { id, text: z.string().optional(), color: color.optional(), long_standing: z.boolean().optional() },
-      write(({ id: noteId, text, color: c, long_standing: longStanding }) => {
+    tool('update_note', 'Change a sticky note\'s text, colour, whether it\'s long-standing, or whether it\'s shown to every profile. Text replaces the whole note.',
+      { id, text: z.string().optional(), color: color.optional(), long_standing: z.boolean().optional(),
+        shared: z.boolean().optional().describe('Show it to every profile (true) or only its owner (false). Only the profile that shared it can stop sharing it.') },
+      write(({ id: noteId, text, color: c, long_standing: longStanding, shared }) => {
         const body = {};
         if (text !== undefined) body.text = text;
         if (c !== undefined) body.color = c;
         if (longStanding !== undefined) body.active = !longStanding;
+        if (shared !== undefined) body.shared = shared;
         return noteShape(updateNote(profile, noteId, body));
       }),
       { searchHint: 'edit sticky note' }),
@@ -156,14 +165,15 @@ const clip = (s, n = 60) => { const t = String(s || '').replace(/\s+/g, ' ').tri
 const STATE_WORDS = { waiting: 'waiting', in_progress: 'in progress', complete: 'complete' };
 
 function ownTask(profile, id) { const r = id ? q.task.get(String(id)) : null; return r && r.profile === profile ? r : null; }
-function ownNote(profile, id) { const r = id ? q.note.get(String(id)) : null; return r && r.profile === profile ? r : null; }
+// A note this profile may see: its own, or a shared one.
+function ownNote(profile, id) { const r = id ? q.note.get(String(id)) : null; return r && (r.profile === profile || r.shared) ? r : null; }
 function subtaskCount(profile, id) {
   let n = 0;
   for (const c of q.taskChildren.all(id, profile)) n += 1 + subtaskCount(profile, c.id);
   return n;
 }
 const taskName = (t) => (t ? `the task "${clip(t.title)}"` : 'a task');
-const noteName = (n) => (n ? `the sticky note "${clip(n.text.split('\n').find((l) => l.trim()) || 'empty')}"` : 'a sticky note');
+const noteName = (n) => (n ? `the ${n.shared ? 'shared ' : ''}sticky note "${clip(n.text.split('\n').find((l) => l.trim()) || 'empty')}"` : 'a sticky note');
 const where = (profile, day, parentId) => {
   if (parentId) return ` under ${taskName(ownTask(profile, parentId))}`;
   return day ? ` on ${day}` : ' to Unscheduled';
