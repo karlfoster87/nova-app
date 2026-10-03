@@ -15,7 +15,8 @@ const ICONS = {
   download: 'M12 4v11m-5-5 5 5 5-5M5 20h14',
   upload: 'M12 20V9m-5 5 5-5 5 5M5 4h14',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
-  menu: 'M4 6h16M4 12h16M4 18h16'
+  menu: 'M4 6h16M4 12h16M4 18h16',
+  search: 'M16 16l4 4M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0'
 };
 // Operating-system clutter a folder upload shouldn't carry into the brain.
 const JUNK = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
@@ -97,7 +98,9 @@ export function init(ctx) {
   const zipBtn = h('button', { type: 'button', class: 'icon-btn', title: 'Download the whole brain as a zip', 'aria-label': 'Download the whole brain as a zip' }, icon('download'));
   const uploadBtn = h('button', { type: 'button', class: 'icon-btn', title: 'Upload files or folders', 'aria-label': 'Upload files or folders', hidden: ctx.access() !== 'edit' }, icon('upload'));
   const toast = h('p', { class: 'sidebar-toast', role: 'alert', hidden: true });
-  side.append(h('div', { class: 'brain-side-head' }, h('span', { class: 'cat-label' }, 'Brain folder'), uploadBtn, refreshBtn, zipBtn), tree, toast);
+  const search = h('input', { class: 'chat-search', type: 'search', placeholder: 'Search file names', 'aria-label': 'Search the brain by file or folder name', autocomplete: 'off', maxlength: '120' });
+  side.append(h('label', { class: 'search-box' }, icon('search'), search),
+    h('div', { class: 'brain-side-head' }, h('span', { class: 'cat-label' }, 'Brain folder'), uploadBtn, refreshBtn, zipBtn), tree, toast);
   uploadBtn.addEventListener('click', () => openUpload(file ? parentOf(file.path) : ''));
 
   const crumbs = h('p', { class: 'brain-crumbs' });
@@ -195,6 +198,7 @@ export function init(ctx) {
 
   function renderTree() {
     const focused = tree.contains(document.activeElement) ? document.activeElement.dataset.path : null;
+    if (found) { renderFound(focused); return; }
     const rows = [];
     const walk = (p, depth) => {
       const entries = dirs.get(p);
@@ -213,6 +217,81 @@ export function init(ctx) {
     tree.replaceChildren(...rows);
     if (focused != null) tree.querySelector(`[data-path="${CSS.escape(focused)}"]`)?.focus();
   }
+
+  // ---- Search -------------------------------------------------------------
+  // While the box has text, the tree shows matching files and folders as a flat list, each
+  // with its folder underneath. The server searches, since the tree only loads open folders.
+  // Opening a file keeps the results; picking a folder clears the search and opens it in the tree.
+  let found = null;   // { q, results, more } while searching, null otherwise
+  let finding = 0;    // the latest search, so a slow reply can't replace a newer one
+  let findTimer;
+  const searchText = () => search.value.replace(/\s+/g, ' ').trim();
+
+  async function runSearch(fresh = false) {
+    const q = searchText();
+    const seq = ++finding;
+    if (!q) { found = null; renderTree(); return; }
+    try {
+      const r = await api('GET', `/api/brain/find?q=${encodeURIComponent(q)}${fresh ? '&fresh=1' : ''}`);
+      if (seq !== finding) return;
+      found = { q, ...r };
+    } catch (err) {
+      if (seq !== finding) return;
+      found = { q, results: [], more: false, error: err.message };
+    }
+    renderTree();
+  }
+
+  function clearSearch() {
+    clearTimeout(findTimer);
+    finding++;
+    search.value = '';
+    found = null;
+    renderTree();
+  }
+
+  function renderFound(focused) {
+    const rows = found.results.map((e) => {
+      const isDir = e.type === 'dir';
+      const folder = parentOf(e.path);
+      const item = h('button', {
+        type: 'button', class: `tree-item found ${isDir ? 'dir' : 'file'}`, role: 'treeitem', 'aria-level': '1',
+        'aria-current': !isDir && file?.path === e.path ? 'true' : null, title: e.path, 'data-path': e.path, 'data-type': e.type
+      }, isDir ? icon('chevron') : h('span', { class: 'tree-spacer' }),
+      h('span', { class: 'found-text' }, h('span', { class: 'tree-name' }, e.name), h('span', { class: 'found-folder' }, folder || 'Brain folder')));
+      item.addEventListener('click', () => (isDir ? openFolder(e.path) : openFile(e.path)));
+      return h('div', { class: 'tree-row' }, item);
+    });
+    const note = found.error ? `Couldn't search: ${found.error}`
+      : !rows.length ? 'No file or folder names match.'
+      : found.more ? `Showing the first ${rows.length}. Type more to narrow it down.` : '';
+    if (note) rows.push(h('p', { class: `tree-empty${found.error ? ' error' : ''}` }, note));
+    tree.replaceChildren(...rows);
+    if (focused != null) tree.querySelector(`[data-path="${CSS.escape(focused)}"]`)?.focus();
+  }
+
+  async function openFolder(p) {
+    clearSearch();
+    await reveal(p);
+    await toggleDir(p, true);
+    tree.querySelector(`[data-path="${CSS.escape(p)}"]`)?.focus();
+  }
+
+  search.addEventListener('input', () => {
+    clearTimeout(findTimer);
+    if (!searchText()) { runSearch(); return; }
+    findTimer = setTimeout(runSearch, 150);
+  });
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && search.value) { e.preventDefault(); clearSearch(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); tree.querySelector('.tree-item')?.focus(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(findTimer);
+      // Enter opens the first result, once the search for what's typed has come back.
+      (found?.q === searchText() ? Promise.resolve() : runSearch()).then(() => tree.querySelector('.tree-item')?.click());
+    }
+  });
 
   async function toggleDir(p, open = !expanded.has(p)) {
     if (open) {
@@ -245,7 +324,8 @@ export function init(ctx) {
     if (i < 0) return;
     const el = items[i], p = el.dataset.path, isDir = el.dataset.type === 'dir';
     if (e.key === 'ArrowDown') items[i + 1]?.focus();
-    else if (e.key === 'ArrowUp') items[i - 1]?.focus();
+    else if (e.key === 'ArrowUp') (items[i - 1] || search).focus();
+    else if (found) { if (e.key !== 'Escape') return; clearSearch(); search.focus(); } // results are a flat list
     else if (e.key === 'ArrowRight' && isDir && !expanded.has(p)) toggleDir(p, true);
     else if (e.key === 'ArrowLeft' && isDir && expanded.has(p)) toggleDir(p, false);
     else if (e.key === 'ArrowLeft' && parentOf(p) !== p) tree.querySelector(`[data-path="${CSS.escape(parentOf(p))}"]`)?.focus();
@@ -268,6 +348,7 @@ export function init(ctx) {
 
   refreshBtn.addEventListener('click', async () => {
     await refreshTree();
+    if (found) runSearch(true);
     if (file && !editor) openFile(file.path, { quiet: true });
   });
   zipBtn.addEventListener('click', () => downloadFolder(''));

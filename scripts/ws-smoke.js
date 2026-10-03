@@ -350,6 +350,15 @@ async function brain(a, b, c) {
   check(links.missing === null && links['node_modules/pkg/readme'] === null, 'missing and hidden targets resolve to nothing');
   const near = (await http('POST', '/api/brain/resolve', { cookie: b, body: { from: 'Clients/Acme/overview.md', names: ['brief'] } })).data;
   check(near?.brief === 'Clients/Acme/brief.md', 'a note in the linking note\'s own folder wins');
+
+  // The search box above the tree: names only, under the same visibility rules as the tree.
+  const find = async (cookie, q) => http('GET', `/api/brain/find?q=${encodeURIComponent(q)}`, { cookie });
+  const paths = async (q) => (await find(b, q)).data?.results?.map((r) => `${r.type}:${r.path}`) || [];
+  check(JSON.stringify(await paths('BRIEF')) === '["file:Other/brief.md","file:Clients/Acme/brief.md"]', 'the brain search finds files by name in any case, shallower first');
+  check(JSON.stringify(await paths('acme')) === '["dir:Clients/Acme"]', 'the brain search finds folders');
+  check(JSON.stringify(await paths('mine')) === '["file:profiles/smoke-b/mine.md"]' && !(await paths('readme')).length,
+    'the brain search leaves out other profiles\' folders and hidden paths');
+  check((await find(c, 'brief')).status === 403 && !(await paths('  ')).length, 'the brain search needs brain access and words to look for');
   check((await http('GET', '/api/brain/image?path=notes%2Fa.md', { cookie: a })).status === 415, 'only raster images are served inline');
   await brainVideo(a, c);
   await brainPages(a, b, c);

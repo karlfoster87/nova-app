@@ -21,6 +21,35 @@ function brainIndex(profile) {
 // File names changed (a delete or an upload): links must look again.
 export const clearLinkIndex = () => indexes.clear();
 
+// The search box above the brain tree: files and folders whose name holds every word typed,
+// in any case. The tree loads one folder at a time, so the search walks the same index as
+// links do. Folders come from the files' paths, so an empty folder isn't found. Best first:
+// the name exactly, then names starting with the words, then the rest; shallower before deeper.
+const FIND_MAX = 100;
+export function findNames(profile, q, fresh = false) {
+  requireView(profile, 'brain', 'read');
+  if (fresh) indexes.delete(profile); // the refresh button: files Claude just wrote
+  const words = String(q || '').slice(0, 120).toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return { results: [], more: false };
+  const phrase = words.join(' ');
+  const found = [];
+  const consider = (p, type) => {
+    const name = p.slice(p.lastIndexOf('/') + 1), lower = name.toLowerCase();
+    if (!words.every((w) => lower.includes(w))) return;
+    const stem = type === 'file' && lower.includes('.') ? lower.slice(0, lower.lastIndexOf('.')) : lower;
+    const rank = stem === phrase || lower === phrase ? 0 : lower.startsWith(words[0]) ? 1 : 2;
+    found.push({ path: p, name, type, rank, depth: p.split('/').length });
+  };
+  const folders = new Set();
+  for (const f of brainIndex(profile)) {
+    consider(f, 'file');
+    for (let i = f.indexOf('/'); i > 0; i = f.indexOf('/', i + 1)) folders.add(f.slice(0, i));
+  }
+  for (const d of folders) consider(d, 'dir');
+  found.sort((a, b) => a.rank - b.rank || a.depth - b.depth || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  return { results: found.slice(0, FIND_MAX).map(({ path: p, name, type }) => ({ path: p, name, type })), more: found.length > FIND_MAX };
+}
+
 // Finds what [[target]] points at: by file name anywhere in the brain (".md" implied), or by a
 // path when the target has a folder in it. With several matches, one in the linking note's own
 // folder wins, then the shortest path.

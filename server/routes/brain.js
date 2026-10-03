@@ -5,7 +5,7 @@ import { UserError } from '../core/errors.js';
 import { readJson, sendStream } from '../http/respond.js';
 import { listFolder, readFile, writeFile, deletePath, uploadFile, commitUpload } from '../brain/files.js';
 import { download, image, video } from '../brain/downloads.js';
-import { resolveLinks } from '../brain/links.js';
+import { resolveLinks, findNames } from '../brain/links.js';
 import { page, pageProfile } from '../brain/pages.js';
 
 export default function brainRoutes(api, open) {
@@ -35,6 +35,9 @@ export default function brainRoutes(api, open) {
     const { from, names } = await readJson(req);
     return resolveLinks(profile, from, names);
   });
+
+  // The search box above the tree: files and folders by name.
+  api.get('/api/brain/find', ({ url, profile }) => findNames(profile, url.searchParams.get('q'), url.searchParams.has('fresh')));
 
   // ?check: what a folder download would hold, so the browser can refuse before downloading.
   api.get('/api/brain/download', ({ res, url, profile }) => {
