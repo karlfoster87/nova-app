@@ -7,7 +7,7 @@
 import { $ } from '../lib/dom.js';
 import { fileChip } from '../lib/widgets.js';
 import { store } from '../lib/store.js';
-import { canDictate, canSpeak, toggleDictation, stopDictation, stopSpeaking, unlockSpeech, onSpeaking, isSpeaking } from '../lib/speech.js';
+import { canDictate, canSpeakAny, toggleDictation, stopDictation, stopSpeaking, unlockSpeech, onSpeaking, isSpeaking } from '../lib/speech.js';
 import { state, els } from '../state.js';
 import { send } from './socket.js';
 import { picks } from './pickers.js';
@@ -32,6 +32,7 @@ function submit() {
   if ((!text && !attachments.length) || els.send.disabled) return;
   stopDictation();
   stopSpeaking();
+  if (voiceOn()) unlockSpeech(); // this tap or key lets a phone play the reply when it comes
   els.input.value = '';
   commands.close();
   autoGrow();
@@ -56,7 +57,7 @@ els.stop.addEventListener('click', () => { stopSpeaking(); send({ t: 'interrupt'
 // stays quiet. While a reply is being read, the speaker button stops it instead of switching.
 
 const hint = $('hint'), HINT = hint.textContent;
-export const voiceOn = () => canSpeak && store.get('voiceReplies', false) === true;
+export const voiceOn = () => canSpeakAny() && store.get('voiceReplies', false) === true;
 
 // A message in the hint line; with ms, it goes back to the usual hint after that long.
 let hintTimer;
@@ -91,7 +92,6 @@ function syncSpeak() {
   els.speak.title = label;
   els.speak.setAttribute('aria-label', talking ? 'Stop reading' : 'Speak replies');
 }
-els.speak.hidden = !canSpeak;
 els.speak.addEventListener('click', () => {
   if (isSpeaking()) { stopSpeaking(); return; }
   const on = !voiceOn();

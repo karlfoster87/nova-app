@@ -8,6 +8,7 @@ import { login, logout, cookieHeader, switchTo } from '../accounts/auth.js';
 import { prefsFor, pictureStamp } from '../accounts/profiles.js';
 import { VIEWS, accessFor } from '../accounts/access.js';
 import { publicMeta } from '../claude/meta.js';
+import { piperOn } from '../voice/piper.js';
 
 export default function authRoutes(api, open) {
   // Polled by the restart screen. The boot ID is random per process, so a changed ID
@@ -32,7 +33,8 @@ export default function authRoutes(api, open) {
     return { profile, role: row.role, version: VERSION, hasPin: !!row.pin_hash, picture: pictureStamp(profile),
       contextDir: profileDir(profile), brainDir: config.paths.brainDir, meta: publicMeta(),
       views: VIEWS.map(({ id, label }) => ({ id, label })), access: accessFor(profile), prefs: prefsFor(row),
-      uploads: { maxMB: config.uploads.maxMB, maxFiles: config.uploads.maxFiles, brainMaxMB: config.brain.maxUploadMB } };
+      uploads: { maxMB: config.uploads.maxMB, maxFiles: config.uploads.maxFiles, brainMaxMB: config.brain.maxUploadMB },
+      voice: { piper: piperOn() } };
   });
 
   // Switching ends this session and starts one for the other profile in the same tab.

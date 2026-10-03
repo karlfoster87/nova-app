@@ -3,10 +3,12 @@
 import { UserError } from '../core/errors.js';
 
 // On every response. The CSP is deliberately strict: no inline scripts, and no other origin
-// except Google Fonts. Loosening it is a security decision, not a convenience.
+// except Google Fonts. Loosening it is a security decision, not a convenience. media-src
+// allows blob: for Piper's spoken replies (lib/speech.js): only this page's own scripts can
+// make a blob URL, from audio fetched from Nova itself.
 const securityHeaders = {
   'Content-Security-Policy': "default-src 'self'; style-src 'self' https://fonts.googleapis.com; " +
-    "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+    "font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'",
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer'
 };

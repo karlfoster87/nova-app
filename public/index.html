@@ -252,6 +252,14 @@
         <p class="muted" id="voiceHelp"></p>
         <p class="form-status" role="status"></p>
       </form>
+      <form id="piperForm" class="stack" data-admin hidden>
+        <h3>Piper voice server</h3>
+        <p class="muted">For everyone: if you run <a href="https://github.com/OHF-Voice/piper1-gpl" target="_blank" rel="noopener noreferrer">Piper</a> somewhere Nova can reach, spoken replies can use it, so they sound the same on every device. Use <code>http://host:5000</code> for Piper's HTTP server, or <code>tcp://host:10200</code> for Wyoming (such as Home Assistant's Piper). Leave it empty to use each browser's own voices.</p>
+        <label>Address <input name="piperUrl" type="text" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.20:5000"></label>
+        <label>Voice <span class="muted">(optional)</span> <input name="piperVoice" type="text" autocomplete="off" spellcheck="false" placeholder="The server's default, or e.g. en_GB-alba-medium"></label>
+        <div class="row"><button type="submit" class="send-btn">Test and save</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
       <form id="prefsForm" class="stack">
         <h3>Tasks</h3>
         <label class="check"><input type="checkbox" name="hideWeekends"> Hide weekends on the task board</label>

@@ -98,43 +98,77 @@ function fitText(before, words) {
 
 // ---- Speaking -------------------------------------------------------------------
 // Replies arrive as markdown. They're rendered as usual, then read as plain sentences: code
-// and tables are mentioned rather than read out. Text goes to the browser a sentence or so at
-// a time, because Chrome cuts off a single long utterance after about 15 seconds.
+// and tables are mentioned rather than read out. Text goes out a sentence or so at a time,
+// because Chrome cuts off a single long utterance after about 15 seconds, and so Piper's first
+// sentence plays while the next is being made.
+//
+// Two engines: the browser's own voices (speechSynthesis), or Piper through Nova's server
+// (server/voice/piper.js) when an admin has set it up. Piper sounds the same on every device;
+// it's what Automatic means when it's there, and the browser's voice stands in if it fails.
+
+export const PIPER = 'piper'; // the stored voice name that picks Piper
+let piper = false;
+export const setPiper = (on) => { piper = !!on; };
+export const hasPiper = () => piper;
+export const canSpeakAny = () => canSpeak || piper;
+const usePiper = () => piper && [PIPER, ''].includes(store.get('voice.name', ''));
 
 let queued = []; // utterances not finished, kept referenced (Chrome drops events of collected ones)
+let pending = 0; // Piper sentences not yet played
 const listeners = new Set();
-const tell = () => { for (const fn of listeners) fn(queued.length > 0); };
+export const isSpeaking = () => queued.length > 0 || pending > 0;
+const tell = () => { for (const fn of listeners) fn(isSpeaking()); };
 export const onSpeaking = (fn) => listeners.add(fn);
-export const isSpeaking = () => queued.length > 0;
 
-// The voice and speed picked in Settings (this browser only), else the best voice for the
-// browser's language: Edge's "Natural" and Chrome's "Google" voices sound far better than the
-// system defaults.
+// Apple's joke voices (Bubbles, Zarvox…), its old robotic ones and the Eloquence set (Eddy,
+// Grandma…) are left out: nobody wants a reply read by them, and on an iPhone they crowd the list.
+const NOVELTY = new Set(['albert', 'bad news', 'bahh', 'bells', 'boing', 'bubbles', 'cellos', 'deranged', 'good news', 'hysterical',
+  'jester', 'junior', 'organ', 'pipe organ', 'superstar', 'trinoids', 'whisper', 'wobble', 'zarvox', 'ralph', 'fred', 'kathy',
+  'princess', 'agnes', 'bruce', 'vicki', 'victoria', 'eddy', 'flo', 'grandma', 'grandpa', 'reed', 'rocko', 'sandy', 'shelley']);
+const novelty = (v) => NOVELTY.has(v.name.replace(/\s*\(.*$/, '').trim().toLowerCase());
+// Quality tiers: Edge's Natural voices and Apple's downloaded Premium ones, then Apple's
+// Enhanced and Chrome's Google voices, then the compact system voices.
+const tier = (v) => {
+  const id = `${v.name} ${v.voiceURI}`;
+  return /natural|premium|neural/i.test(id) ? 0 : /enhanced|online|google/i.test(id) ? 1 : 2;
+};
+export const appleVoices = () => canSpeak && speechSynthesis.getVoices().some((v) => /^com\.apple\./.test(v.voiceURI));
+
+// The browser's voices, best first: the browser's language, by quality, with its own region
+// winning a tie (a Premium American voice beats a compact British one, a Premium British one
+// beats both). Other languages follow. Some browsers (Safari especially) list none until a
+// moment after the page loads; Settings asks again.
 export function voices() {
   if (!canSpeak) return [];
-  const all = speechSynthesis.getVoices();
+  const all = speechSynthesis.getVoices().filter((v) => !novelty(v));
   const l = lang().toLowerCase(), base = l.split('-')[0];
-  const rank = (v) => {
-    const vl = v.lang.toLowerCase().replace('_', '-');
-    return (vl === l ? 0 : vl.startsWith(base) ? 2 : 4) + (/natural|online|google/i.test(v.name) ? 0 : 1);
-  };
-  return all.filter((v) => v.lang.toLowerCase().startsWith(base)).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
-    .concat(all.filter((v) => !v.lang.toLowerCase().startsWith(base)));
+  const mine = (v) => v.lang.toLowerCase().startsWith(base);
+  const rank = (v) => tier(v) * 2 + (v.lang.toLowerCase().replace('_', '-') === l ? 0 : 1);
+  return all.filter(mine).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)).concat(all.filter((v) => !mine(v)));
 }
 const pickVoice = () => { const list = voices(); return list.find((v) => v.name === store.get('voice.name', '')) || list[0] || null; };
 export const voiceRate = () => Number(store.get('voice.rate', 1)) || 1;
 
 export function stopSpeaking() {
-  if (!canSpeak) return;
+  gen++;
+  pending = 0;
+  if (player) { player.pause(); endPlay?.(); }
   queued = [];
-  speechSynthesis.cancel();
+  if (canSpeak) speechSynthesis.cancel();
   tell();
 }
 
 export function speak(markdown) {
+  const parts = chunks(speakable(markdown));
+  if (!parts.length) return;
+  if (usePiper()) speakPiper(parts);
+  else speakBrowser(parts);
+}
+
+function speakBrowser(parts) {
   if (!canSpeak) return;
   const voice = pickVoice(), rate = voiceRate();
-  for (const part of chunks(speakable(markdown))) {
+  for (const part of parts) {
     const u = new SpeechSynthesisUtterance(part);
     if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = lang();
     u.rate = rate;
@@ -145,13 +179,75 @@ export function speak(markdown) {
   tell();
 }
 
-// Mobile browsers only speak after a tap has spoken once. Called from the tap that turns
-// spoken replies on, so replies arriving later are heard.
+// Piper: sentences are fetched one after another (so the server isn't asked for a whole reply
+// at once) and played in order through one <audio>, which iOS only lets play after a tap has
+// started it once (unlockSpeech). gen moves on when speech is stopped, so late answers are
+// dropped. The speed setting becomes the playback rate, which keeps the pitch.
+let player = null, endPlay = null, gen = 0;
+let fetching = Promise.resolve(), playing = Promise.resolve();
+const getPlayer = () => (player ??= new Audio());
+
+async function piperAudio(text) {
+  const res = await fetch('/api/voice/speak', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Piper failed (${res.status})`);
+  return URL.createObjectURL(await res.blob());
+}
+
+function speakPiper(parts) {
+  const my = gen;
+  for (const text of parts) {
+    pending++;
+    const audio = fetching = fetching.then(() => (my === gen ? piperAudio(text) : null)).catch((err) => ({ err, text }));
+    playing = playing.then(async () => {
+      const got = await audio;
+      if (my !== gen) { if (typeof got === 'string') URL.revokeObjectURL(got); return; }
+      try {
+        if (typeof got === 'string') await play(got);
+        else if (got?.err) { console.warn('Piper failed, so the browser\'s voice reads this part:', got.err.message); speakBrowser([got.text]); }
+      } catch (err) { console.error('Couldn\'t read this part aloud:', err); }
+      if (my !== gen) return; // stopped while it played
+      pending--;
+      tell();
+    });
+  }
+  tell();
+}
+
+function play(url) {
+  const p = getPlayer();
+  return new Promise((resolve) => {
+    const done = () => { p.onended = p.onerror = null; endPlay = null; URL.revokeObjectURL(url); resolve(); };
+    endPlay = done;
+    p.onended = p.onerror = done;
+    p.src = url;
+    p.defaultPlaybackRate = p.playbackRate = voiceRate();
+    p.play().catch(done); // refused (no tap yet on iOS): skip rather than hang the queue
+  });
+}
+
+// Mobile browsers only speak after a tap has started speech once. Called from taps (turning
+// spoken replies on, sending), so replies arriving later are heard.
 export function unlockSpeech() {
-  if (!canSpeak) return;
-  const u = new SpeechSynthesisUtterance('');
-  u.volume = 0;
-  speechSynthesis.speak(u);
+  if (canSpeak) {
+    const u = new SpeechSynthesisUtterance('');
+    u.volume = 0;
+    speechSynthesis.speak(u);
+  }
+  if (piper && !isSpeaking()) {
+    const p = getPlayer();
+    p.src = URL.createObjectURL(new Blob([silentWav()], { type: 'audio/wav' }));
+    p.play().catch(() => {});
+  }
+}
+
+// A tenth of a second of silence, to start the player from a tap.
+function silentWav() {
+  const rate = 8000, n = rate / 10, b = new DataView(new ArrayBuffer(44 + n * 2));
+  const text = (at, s) => { for (let i = 0; i < s.length; i++) b.setUint8(at + i, s.charCodeAt(i)); };
+  text(0, 'RIFF'); b.setUint32(4, 36 + n * 2, true); text(8, 'WAVEfmt '); b.setUint32(16, 16, true);
+  b.setUint16(20, 1, true); b.setUint16(22, 1, true); b.setUint32(24, rate, true); b.setUint32(28, rate * 2, true);
+  b.setUint16(32, 2, true); b.setUint16(34, 16, true); text(36, 'data'); b.setUint32(40, n * 2, true);
+  return b.buffer;
 }
 
 // Markdown to plain sentences: each block on its own, ending in a full stop if it had none.

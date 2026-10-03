@@ -56,6 +56,13 @@ const defaults = {
     maxFiles: 10,         // per message
     keepUnsentHours: 24   // files added in the composer but never sent are deleted after this
   },
+  voice: {
+    // A Piper text-to-speech server Nova relays spoken replies through, so they sound the same
+    // on every device: http://host:port (Piper's HTTP server) or tcp://host:port (Wyoming, e.g.
+    // Home Assistant's Piper). '' = browsers use their own voices.
+    piperUrl: '',
+    piperVoice: ''        // e.g. 'en_GB-alba-medium'; '' = the server's default voice
+  },
   views: {
     // Access for user profiles an admin hasn't set: 'none' | 'read' | 'edit'. A view
     // missing here is 'none'. Admins always have edit.

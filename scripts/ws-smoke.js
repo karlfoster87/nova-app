@@ -601,6 +601,7 @@ async function tasksAndNotes(a, b, c) {
   await pins(a);
   await pictures(a, b);
   await slashCommands(a);
+  await piper(a, b);
 
   // Nova's own updates. Checks are off here (checkHours 0), so nothing asks GitHub.
   const app = await http('GET', '/api/settings/app', { cookie: a });
@@ -612,6 +613,91 @@ async function tasksAndNotes(a, b, c) {
     'a user can\'t see or check Nova\'s updates');
   check((await http('POST', '/api/settings/app/update', { cookie: a, body: { commit: 'f'.repeat(40) } })).status === 409,
     'nothing is installed without a check that found an update');
+}
+
+// Piper voice: the settings are admin-only, a bad address is refused, and speech comes back
+// as a WAV through each kind of Piper: the older HTTP server (GET ?text=), the current one
+// (POST of JSON, 405 on GET) and Wyoming over TCP. All three are small fakes started here.
+async function piper(a, b) {
+  const { default: http_ } = await import('node:http');
+  const WAV = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(40)]);
+  const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+  const said = [];
+  const oldHttp = http_.createServer((req, res) => {
+    const text = new URL(req.url, 'http://x').searchParams.get('text');
+    said.push(['get', text]);
+    res.writeHead(200, { 'Content-Type': 'audio/wav' }).end(WAV);
+  });
+  const newHttp = http_.createServer(async (req, res) => {
+    if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+    let body = '';
+    for await (const c of req) body += c;
+    said.push(['post', JSON.parse(body)]);
+    res.writeHead(200, { 'Content-Type': 'audio/wav' }).end(WAV);
+  });
+  // Wyoming: answers a synthesize event with audio-start, one chunk (its format in a separate
+  // data block, as newer servers send it) and audio-stop.
+  const wyoming = net.createServer((sock) => {
+    let buf = '';
+    sock.on('data', (d) => {
+      buf += d;
+      if (!buf.includes('\n')) return;
+      said.push(['wyoming', JSON.parse(buf.split('\n')[0])]);
+      const fmt = JSON.stringify({ rate: 16000, width: 2, channels: 1 });
+      const pcm = Buffer.alloc(320);
+      sock.write(`${JSON.stringify({ type: 'audio-start', data: { rate: 16000, width: 2, channels: 1 } })}\n`);
+      sock.write(Buffer.concat([Buffer.from(`${JSON.stringify({ type: 'audio-chunk', data_length: Buffer.byteLength(fmt), payload_length: pcm.length })}\n`), Buffer.from(fmt), pcm]));
+      sock.write(`${JSON.stringify({ type: 'audio-stop' })}\n`);
+    });
+  });
+  const [oldPort, newPort, wyPort] = [await listen(oldHttp), await listen(newHttp), await listen(wyoming)];
+  const speak = async (cookie, text) => {
+    const res = await fetch(`${base}/api/voice/speak`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    const body = Buffer.from(await res.arrayBuffer());
+    return { status: res.status, type: res.headers.get('content-type'), body };
+  };
+  try {
+    check((await http('GET', '/api/me', { cookie: b })).data?.voice?.piper === false, 'Piper is off until an admin sets it up');
+    check((await speak(b, 'Hello.')).status === 409, 'without Piper, asking for speech says it isn\'t set up');
+    check((await http('POST', '/api/voice/speak', { body: { text: 'Hello.' } })).status === 401, 'speech needs a session');
+    check((await http('GET', '/api/settings/voice', { cookie: b })).status === 403
+      && (await http('POST', '/api/settings/voice', { cookie: b, body: { piperUrl: `http://127.0.0.1:${oldPort}` } })).status === 403,
+      'a user can\'t see or change the Piper server');
+    check((await http('POST', '/api/settings/voice', { cookie: a, body: { piperUrl: 'ftp://somewhere' } })).status === 400
+      && (await http('POST', '/api/settings/voice', { cookie: a, body: { piperUrl: 'tcp://127.0.0.1' } })).status === 400
+      && (await http('POST', '/api/settings/voice', { cookie: a, body: { piperUrl: `http://127.0.0.1:${oldPort}`, piperVoice: 'bad voice!' } })).status === 400,
+      'a malformed Piper address or voice is refused');
+    const closed = net.createServer();
+    const deadPort = await listen(closed);
+    await new Promise((r) => closed.close(r)); // nothing listens there now
+    const dead = await http('POST', '/api/settings/voice', { cookie: a, body: { piperUrl: `http://127.0.0.1:${deadPort}` } });
+    check(dead.status === 502 && (await http('GET', '/api/settings/voice', { cookie: a })).data?.piperUrl === '', 'a Piper that doesn\'t answer isn\'t saved');
+
+    let set = await http('POST', '/api/settings/voice', { cookie: a, body: { piperUrl: `127.0.0.1:${oldPort}/` } });
+    check(set.status === 200 && set.data.piperUrl === `http://127.0.0.1:${oldPort}`, 'a Piper address without http:// is tidied and saved');
+    let r = await speak(b, 'Hello   there.');
+    check(r.status === 200 && r.type === 'audio/wav' && r.body.toString('latin1', 0, 4) === 'RIFF' && said.at(-1)[1] === 'Hello there.',
+      'speech comes back as a WAV from Piper\'s older HTTP server');
+    check((await http('GET', '/api/me', { cookie: b })).data?.voice?.piper === true, 'every profile can see that Piper is available');
+    check((await speak(b, 'x'.repeat(1001))).status === 413 && (await speak(b, '   ')).status === 400, 'empty or overlong text is refused');
+
+    set = await http('POST', '/api/settings/voice', { cookie: a, body: { piperUrl: `http://127.0.0.1:${newPort}`, piperVoice: 'en_GB-alba-medium' } });
+    r = await speak(b, 'Hi.');
+    check(set.status === 200 && r.status === 200 && said.at(-1)[0] === 'post' && said.at(-1)[1].text === 'Hi.' && said.at(-1)[1].voice === 'en_GB-alba-medium',
+      'the current Piper HTTP server is sent JSON with the chosen voice');
+
+    set = await http('POST', '/api/settings/voice', { cookie: a, body: { piperUrl: `tcp://127.0.0.1:${wyPort}`, piperVoice: '' } });
+    r = await speak(b, 'Over Wyoming.');
+    const ev = said.at(-1);
+    check(set.status === 200 && r.status === 200 && ev[0] === 'wyoming' && ev[1].type === 'synthesize' && ev[1].data.text === 'Over Wyoming.'
+      && r.body.toString('latin1', 0, 4) === 'RIFF' && r.body.readUInt32LE(24) === 16000 && r.body.length === 44 + 320,
+      'Wyoming audio is wrapped in a WAV with its own sample rate');
+
+    set = await http('POST', '/api/settings/voice', { cookie: a, body: { piperUrl: '' } });
+    check(set.status === 200 && (await speak(b, 'Hello.')).status === 409, 'an admin can turn Piper off again');
+  } finally {
+    oldHttp.close(); newHttp.close(); wyoming.close();
+  }
 }
 
 // Slash commands for the composer: the brain's own skills and Claude Code's, from an idle session

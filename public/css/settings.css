@@ -9,6 +9,7 @@
 .settings fieldset { border: 0; padding: 0; margin: 0 0 18px; }
 .settings legend { font-weight: 700; margin-bottom: 6px; color: var(--accent); font-size: 12px; }
 .settings label { display: block; margin: 6px 0; font-size: 12.5px; }
+.settings a { color: var(--accent); text-underline-offset: 3px; }
 .settings input[type=password], .settings input[type=text], .settings input:not([type]), .settings input[type=number], .settings input[type=date], .settings select, .settings textarea {
   display: block; width: 100%; margin-top: 4px; border: 1px solid var(--line-bright); border-radius: var(--r-sm); background: var(--shade); padding: 7px 10px; font-size: 13px;
 }
