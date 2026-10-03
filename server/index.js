@@ -28,10 +28,11 @@ import viewRoutes from './routes/views.js';
 import settingsRoutes from './routes/settings.js';
 import updateRoutes from './routes/updates.js';
 import voiceRoutes from './routes/voice.js';
+import searchRoutes from './routes/search.js';
 
 const open = createRouter(); // routes that need no session: health, sign-in, brain pages (own token)
 const api = createRouter();  // everything else, for a signed-in profile
-for (const register of [authRoutes, profileRoutes, chatRoutes, permissionRoutes, brainRoutes, viewRoutes, settingsRoutes, updateRoutes, voiceRoutes]) {
+for (const register of [authRoutes, profileRoutes, chatRoutes, permissionRoutes, brainRoutes, viewRoutes, settingsRoutes, updateRoutes, voiceRoutes, searchRoutes]) {
   register(api, open);
 }
 

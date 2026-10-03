@@ -419,7 +419,20 @@ export function init(ctx) {
   }
 
   return {
-    show() { ctx.setRoute(''); load(); },
+    // arg: a note's id (from the search palette): it's scrolled to and briefly lit, with the
+    // colour filter cleared if it would hide it.
+    async show(arg) {
+      ctx.setRoute('');
+      await load();
+      if (!arg) return;
+      const n = notes.find((x) => x.id === arg);
+      if (!n) { setStatus('That note doesn\'t exist any more.', true); return; }
+      if (filter && filter !== n.color) { filter = null; store.set('notes.color', null); render(); }
+      const el = board.querySelector(`[data-id="${CSS.escape(arg)}"]`);
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el?.classList.add('flash');
+      setTimeout(() => el?.classList.remove('flash'), 1600);
+    },
     onServer(m) { if (m.t === 'notes_changed' && loaded) load(); },
     profileChanged() { if (loaded) render(); }
   };

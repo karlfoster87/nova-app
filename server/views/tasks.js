@@ -50,6 +50,23 @@ export function listTasks(profile, today) {
   return { tasks: q.tasksFrom.all(profile, today).map(shape) };
 }
 
+// Tasks on the board (the listTasks rule) whose title or note holds every word, for the search
+// palette. Each says the day its top-level task is on, so the board can open there.
+export function searchTasks(profile, words, today) {
+  const all = listTasks(profile, today).tasks;
+  const byId = new Map(all.map((t) => [t.id, t]));
+  const out = [];
+  for (const t of all) {
+    const hay = `${t.title}\n${t.note}`.toLowerCase();
+    if (!words.every((w) => hay.includes(w))) continue;
+    let top = t;
+    while (top.parentId && byId.has(top.parentId)) top = byId.get(top.parentId);
+    out.push({ id: t.id, title: t.title, note: t.note, state: t.state, day: top.day, parent: t.parentId ? byId.get(t.parentId)?.title || null : null });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
 // Today's remaining work for the Tasks badge: unfinished bottom-level tasks under today's tasks.
 export function tasksLeftToday(profile, today) {
   today = checkDay(today);

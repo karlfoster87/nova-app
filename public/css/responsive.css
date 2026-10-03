@@ -1,5 +1,23 @@
 /* Narrow screens (drawers) and the installed desktop app's title bar. Last, so it overrides the rest. */
 /* ---- Narrow screens: presence and sidebar become drawers -------------- */
+/* The header bar drops its least useful items one width at a time, so nothing wraps onto a
+   second row before the phone layout gives the usage meters a row of their own. */
+@media (max-width: 1440px) {
+  .clock, .version { display: none; }
+}
+@media (max-width: 1100px) {
+  .appbar .slashes { display: none; }
+}
+@media (max-width: 1024px) and (min-width: 761px) {
+  .appbar { gap: 12px; }
+  .usage { gap: 10px; }
+  .meter { grid-template-columns: auto 48px; gap: 6px; }
+}
+/* Just the coloured dot; the word stays for screen readers, and the dot's colour still says it. */
+@media (max-width: 880px) and (min-width: 761px) {
+  .link-state > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .meter { grid-template-columns: auto 34px; }
+}
 @media (max-width: 1320px) {
   .shell { grid-template-columns: 280px minmax(0, 1fr) 310px; } /* the sidebar keeps its width until it becomes a drawer */
   .brand-tag { display: none; }
@@ -75,4 +93,13 @@
 }
 @media (display-mode: window-controls-overlay) and (max-width: 760px) {
   .sidebar, .presence { top: env(titlebar-area-height, 0px); }
+}
+/* Narrow phones: "Opus week" and "Sonnet week" become "Opus" and "Sonnet", so four meters still fit one row. */
+@media (max-width: 480px) {
+  .meter-more { display: none; }
+  .usage { gap: 10px; }
+}
+/* The smallest phones: the connection status is just its dot, so the header keeps one row. */
+@media (max-width: 360px) {
+  .link-state > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }

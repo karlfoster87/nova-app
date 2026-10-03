@@ -52,6 +52,11 @@ export function listNotes(profile) {
   return [...q.notes.all(profile).map(shape), ...q.sharedNotes.all().map(shape)];
 }
 
+// Notes this profile sees (its own and shared ones) whose text holds every word, for the search palette.
+export const searchNotes = (profile, words) => listNotes(profile)
+  .filter((n) => words.every((w) => n.text.toLowerCase().includes(w))).slice(0, 10)
+  .map(({ id, text, color, shared, owner, mine }) => ({ id, text, color, shared, owner, mine }));
+
 // New notes go first, where they're easiest to find.
 export function createNote(profile, { text = '', color = 'yellow' } = {}) {
   requireView(profile, 'notes', 'edit');

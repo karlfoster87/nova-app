@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.5.2 · Node 22.13+ · five dependencies · no build step
+Version 0.6.1 · Node 22.13+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -44,6 +44,10 @@ Nova can use them too. Ask in any chat ("plan my week from the sprint note", "ti
   <img src="docs/screenshots/tasks.png" alt="The Tasks board with today's and tomorrow's tasks, one with subtasks" width="49%">
   <img src="docs/screenshots/notes.png" alt="Sticky notes in several colours, with a long-standing section" width="49%">
 </p>
+
+### Find anything
+
+Press **Ctrl+K** (**⌘K** on a Mac), or the search button in the header on a phone, and one box searches everything: chats by title, brain files by name and by the words inside them, tasks, sticky notes (shared ones too) and skills. Results are grouped and each opens where it lives: the chat, the file, the task on its day, the note on the board, or a new chat with the skill ready to run.
 
 ### Wherever you are
 

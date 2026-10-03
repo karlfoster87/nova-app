@@ -75,15 +75,24 @@ function otherProfiles(rel, profile) {
 }
 
 const NOVA_TEMP = /\.nova-[0-9a-f]{8}\.tmp$/; // a save or upload in progress (core/files.js tempBeside)
-export function isHidden(rel, profile) {
+// Hidden from everyone: .git and node_modules, Nova's temp files, the trash, the ignore list.
+export function hiddenFromAll(rel) {
   if (!rel) return false;
   if (rel.split('/').some(hiddenName)) return true;
   if (NOVA_TEMP.test(rel)) return true;
   const trash = fold(config.brain.trashDir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''));
   if (trash && (fold(rel) === trash || fold(rel).startsWith(`${trash}/`))) return true; // deleted items
-  if (matches(rel, ignoreRules ??= compile(config.brain.ignore))) return true;
-  return otherProfiles(rel, profile);
+  return matches(rel, ignoreRules ??= compile(config.brain.ignore));
 }
+
+// Hidden from this profile: the above, and other profiles' notes folders. Nova's search index
+// (brain/search.js) holds everything not hiddenFromAll, so each result is checked with this
+// for the profile asking before it's shown.
+export const isHidden = (rel, profile) => hiddenFromAll(rel) || otherProfiles(rel, profile);
+
+// In place of a profile, for the search index only: walk every profile's notes folder too.
+export const EVERYONE = Symbol('everyone');
+const hiddenFor = (profile) => (profile === EVERYONE ? hiddenFromAll : (rel) => isHidden(rel, profile));
 
 // ---- Rights -----------------------------------------------------------------
 
@@ -142,19 +151,20 @@ export function entryStat(full, dirent, profile) {
     let target = full;
     if (dirent.isSymbolicLink()) {
       target = fs.realpathSync.native(full);
-      if (!within(target, root()) || isHidden(toRel(root(), target), profile)) return null;
+      if (!within(target, root()) || hiddenFor(profile)(toRel(root(), target))) return null;
     }
     const st = fs.statSync(target);
     return st.isFile() || st.isDirectory() ? { st, target } : null;
   } catch { return null; }
 }
 
-// Visits every file under a folder that this profile can see: abs is the folder on disk, rel
+// Visits every file under a folder that this profile can see (or, with EVERYONE, every file the
+// search index may hold): abs is the folder on disk, rel
 // its path from the root. visit({ abs, rel, st }) returning false stops the walk. Symlinks
 // are followed as entryStat allows, and a link loop is visited once. strict: an unreadable
 // folder throws rather than being skipped.
 export function walkFiles(profile, abs, rel, visit, { strict = false } = {}) {
-  const seen = new Set();
+  const seen = new Set(), hidden = hiddenFor(profile);
   let stopped = false;
   const walk = (dir, relDir) => {
     const key = fold(fs.realpathSync.native(dir));
@@ -165,7 +175,7 @@ export function walkFiles(profile, abs, rel, visit, { strict = false } = {}) {
     for (const d of entries) {
       if (stopped) return;
       const childRel = relDir ? `${relDir}/${d.name}` : d.name;
-      if (isHidden(childRel, profile)) continue;
+      if (hidden(childRel)) continue;
       const s = entryStat(path.join(dir, d.name), d, profile);
       if (!s) continue;
       if (s.st.isDirectory()) walk(s.target, childRel);

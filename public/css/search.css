@@ -1,0 +1,51 @@
+/* The search palette (js/shell/search.js) and its button in the header bar. */
+/* ---- Header button ------------------------------------------------------ */
+/* Just the icon, like the avatar button beside it; the shortcut is in its tooltip. */
+.search-btn svg { stroke: var(--accent); }
+.search-hint kbd {
+  font: 600 10.5px/1 var(--mono); color: var(--muted); border: 1px solid var(--line-bright); border-radius: var(--r-sm); padding: 3px 5px;
+}
+
+/* ---- Palette ------------------------------------------------------------ */
+/* Near the top rather than centred, so the list grows downwards without the box jumping. */
+.search-dialog {
+  margin: 10vh auto auto; width: min(640px, 94vw); max-height: 76vh; padding: 0; display: flex; flex-direction: column;
+  border: 1px solid var(--line-bright); border-radius: var(--r-md); background: var(--paper); color: var(--ink);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5), 0 0 40px -12px var(--glow), inset 0 0 60px -40px var(--glow);
+}
+.search-dialog:not([open]) { display: none; }
+.search-dialog::backdrop { background: rgb(1 4 10 / 0.72); backdrop-filter: blur(2px); }
+.search-field { margin: 12px 12px 6px; flex: none; }
+.search-field .search-input { flex: 1; min-width: 0; border: 0; background: none; padding: 11px 0; font-size: 14px; outline: none; color: var(--ink); }
+.search-field .search-input:focus-visible { box-shadow: none; outline: none; }
+.search-close { display: none; }
+.search-results { overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 8px; min-height: 0; }
+.search-group { margin-top: 8px; }
+.search-group-label { margin: 0; padding: 4px 8px; font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; }
+.search-item { display: flex; gap: 10px; align-items: flex-start; padding: 7px 8px; border-radius: var(--r-sm); cursor: pointer; }
+.search-item.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.search-icon { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-sm); border: 1px solid var(--line); color: var(--accent); }
+.search-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.search-text { display: grid; gap: 2px; min-width: 0; }
+.search-title { font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-item.active .search-title { color: var(--bright); }
+.search-detail { margin-left: 8px; font-size: 11px; color: var(--muted); }
+.search-snippet { font-size: 11.5px; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.search-results mark { background: var(--accent-soft); color: var(--accent); border-radius: 2px; padding: 0 1px; }
+.search-empty { margin: 14px 8px; color: var(--muted); font-size: 12.5px; }
+.search-empty.small { margin: 8px; font-size: 11.5px; }
+.search-hint { flex: none; display: flex; gap: 16px; margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.search-hint kbd { margin-right: 3px; }
+
+/* A task or note the palette opened, pointed out for a moment. */
+.task.flash, .note.flash { box-shadow: 0 0 0 2px var(--accent), 0 0 22px -4px var(--glow); transition: box-shadow 0.3s; }
+
+/* Phones: the palette fills the top of the screen, and the button is just its icon. 16px text
+   stops iOS zooming into the box. */
+@media (max-width: 760px) {
+  .search-hint { display: none; }
+  .search-dialog { margin: 0; width: 100vw; max-width: 100vw; max-height: 85dvh; border-width: 0 0 1px; border-radius: 0 0 var(--r-md) var(--r-md); }
+  .search-field .search-input { font-size: 16px; }
+  .search-close { display: inline-block; }
+  .search-item { padding: 9px 8px; }
+}

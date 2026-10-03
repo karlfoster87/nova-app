@@ -59,6 +59,7 @@ put('.claude/settings.json', '{}\n');
 put('node_modules/pkg/readme.md', 'hidden\n');
 put('.obsidian/app.json', '{}\n');
 put('profiles/smoke-a/mine.md', 'a\n');
+put('profiles/smoke-a/secret.md', 'a zebrafish only smoke-a may find\n'); // the search palette must never show it to smoke-b
 put('profiles/smoke-b/mine.md', 'b\n');
 put('bin/data.bin', Buffer.from([0, 1, 2, 3]));
 // For [[link]] resolution: two notes with the same name, and an image.
@@ -361,6 +362,16 @@ async function brain(a, b, c) {
   check(JSON.stringify(await paths('mine')) === '["file:profiles/smoke-b/mine.md"]' && !(await paths('readme')).length,
     'the brain search leaves out other profiles\' folders and hidden paths');
   check((await find(c, 'brief')).status === 403 && !(await paths('  ')).length, 'the brain search needs brain access and words to look for');
+
+  // The search palette's text search: words inside brain files, under the same visibility rules.
+  const textHits = async (cookie, q) => ((await http('GET', `/api/search?q=${encodeURIComponent(q)}&today=2026-10-03`, { cookie })).data?.text || []).map((r) => r.path);
+  check((await textHits(b, 'third VERS')).includes('notes/a.md'), 'the search finds words inside brain files, in any case and by the start of a word');
+  check((await textHits(a, 'zebrafish')).includes('profiles/smoke-a/secret.md') && !(await textHits(b, 'zebrafish')).length,
+    'the text search finds a profile\'s own notes folder, and never another profile\'s');
+  check(!(await textHits(a, 'hidden')).includes('node_modules/pkg/readme.md'), 'the text search leaves out hidden folders');
+  const c3 = (await http('GET', '/api/search?q=hello&today=2026-10-03', { cookie: c })).data;
+  check(c3 && !('files' in c3) && !('text' in c3), 'the search leaves out the brain for a profile without brain access');
+  check((await http('GET', `/api/search?q=${encodeURIComponent('" OR NEAR( *')}&today=2026-10-03`, { cookie: a })).status === 200, 'search syntax in what\'s typed is taken as plain words');
   check((await http('GET', '/api/brain/image?path=notes%2Fa.md', { cookie: a })).status === 415, 'only raster images are served inline');
   await brainVideo(a, c);
   await brainPages(a, b, c);
@@ -618,8 +629,17 @@ async function tasksAndNotes(a, b, c) {
   check(sharedOrder?.filter((n) => n.shared).map((n) => n.id).join() === [n2.id, bNote.id].join(), 'anyone reorders the shared notes, in one order for everyone');
   check((await http('DELETE', `/api/notes/${bNote.id}`, { cookie: a })).status === 200 && !(await noteList(b)).some((n) => n.id === bNote.id),
     'another profile deletes a shared note, for everyone');
+
+  // The search palette finds tasks on the board and notes this profile sees, shared ones included.
+  const search = async (cookie, q, day = today) => (await http('GET', `/api/search?q=${encodeURIComponent(q)}&today=${day}`, { cookie })).data || {};
+  const found = await search(a, 'stack');
+  check(found.tasks?.[0]?.title === 'Stack' && found.tasks[0].day === today, 'the search finds a task, with its day');
+  check((await search(a, 'leaf a')).tasks?.some((t) => t.title === 'Leaf A' && t.day === today && t.parent === 'Stack'), 'a found subtask carries its top task\'s day and its parent');
+  check((await search(b, 'bread')).notes?.some((n) => n.id === n2.id && n.shared && n.owner === 'smoke-a'), 'the search finds a note shared by another profile');
+  check(!(await search(b, 'stack')).tasks?.length, 'the search never finds another profile\'s tasks');
   check((await patchNote(a, n2.id, { shared: false })).data?.shared === false && !(await noteList(b)).some((n) => n.id === n2.id)
     && (await patchNote(b, n2.id, { text: 'x' })).status === 404, 'once taken back, a note is private again');
+  check(!(await search(b, 'bread')).notes?.length, 'a note taken back no longer turns up in another profile\'s search');
 
   // Personal preferences: each profile sets its own.
   check((await http('GET', '/api/me', { cookie: b })).data?.prefs?.hideWeekends === false, 'hide weekends is off by default');

@@ -63,9 +63,11 @@ body:not(.login-body) {
     linear-gradient(var(--c), var(--c)) bottom right / 1px 16px no-repeat;
   opacity: 0.75;
 }
-.main { display: grid; grid-template-rows: minmax(0, 1fr); background: var(--panel); overflow: hidden; }
+/* The middle panel takes whatever width the side panels leave: its column (and each view's) is pinned
+   to that width, so no content can stretch it. Anything wider has to wrap or scroll inside itself. */
+.main { display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); background: var(--panel); overflow: hidden; }
 /* Each view owns a pane in the sidebar and one in the main column; only the active pair shows. */
-.view { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+.view { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; }
 .side-pane { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
 
 /* ---- Header bar -------------------------------------------------------- */

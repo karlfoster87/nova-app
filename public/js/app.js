@@ -14,6 +14,7 @@ import './presence/panel.js';    // listens for 'nova:presence' and 'nova:log'
 import { openLog } from './presence/log.js';
 import { refreshMe } from './shell/profile.js';
 import { goTo, routeFromHash } from './shell/views.js';
+import './shell/search.js';      // the search palette: Ctrl+K and the header's search button
 import { startChats, pwa } from './chat/chats.js';
 import { openSettings } from './settings/dialog.js';
 import { openSwitcher } from './settings/switcher.js';

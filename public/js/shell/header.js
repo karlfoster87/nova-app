@@ -27,6 +27,11 @@ function logUsage(key, label, pct, status) {
   try { sessionStorage.setItem('nova.usageLevels', JSON.stringify(Object.fromEntries(usageLevel))); } catch {}
 }
 const usageNote = (text) => h('span', { class: 'usage-note' }, text);
+// "Opus week" shows as "Opus" on narrow phones (CSS hides .meter-more); the popover keeps the full name.
+const meterLabel = (label) => {
+  const [first, ...rest] = label.split(' ');
+  return h('span', { class: 'meter-label' }, first, rest.length ? h('span', { class: 'meter-more' }, ` ${rest.join(' ')}`) : null);
+};
 
 export function renderUsage() {
   const signedIn = state.meta?.signedIn;
@@ -53,7 +58,7 @@ export function renderUsage() {
       class: `meter${pct >= 90 || w.status === 'rejected' ? ' bad' : pct >= 75 || w.status === 'allowed_warning' ? ' warn' : ''}`,
       tabindex: 0, role: 'meter', 'aria-valuenow': rounded, 'aria-valuemin': 0, 'aria-valuemax': 100,
       'data-label': label, 'data-pct': rounded, 'data-resets': w.resets_at || ''
-    }, h('span', {}, label), h('div', { class: 'meter-track' }, h('div', { class: 'meter-fill' })),
+    }, meterLabel(label), h('div', { class: 'meter-track' }, h('div', { class: 'meter-fill' })),
       h('div', { class: 'meter-tip', role: 'tooltip' }, h('strong', {}, `${label}: ${rounded}% used`), h('span', { class: 'meter-reset' })));
     div.querySelector('.meter-fill').style.width = `${pct}%`;
     return div;

@@ -184,6 +184,29 @@ export function init(ctx) {
     col.classList.add('flash');
     setTimeout(() => col.classList.remove('flash'), 900);
   }
+  // Shows one task: its day (or Unscheduled), its state ticked in the filter, and the card
+  // scrolled to and briefly lit.
+  function reveal(id) {
+    let t = tasks.get(id);
+    if (!t) { setStatus('That task isn\'t on the board any more.', true); return; }
+    if (!shown.has(t.state)) {
+      shown.add(t.state);
+      store.set('tasks.states', [...shown]);
+      for (const box of filters.querySelectorAll('input')) box.checked = shown.has(box.value);
+      render();
+    }
+    while (t.parentId && tasks.get(t.parentId)) t = tasks.get(t.parentId);
+    if (t.day) showDays(t.day);
+    else if (!showUnscheduled) { showUnscheduled = true; render(); }
+    requestAnimationFrame(() => {
+      const card = board.querySelector(`.task[data-id="${CSS.escape(id)}"]`);
+      if (!card) return;
+      card.scrollIntoView({ block: 'nearest' });
+      card.classList.add('flash');
+      setTimeout(() => card.classList.remove('flash'), 1600);
+    });
+  }
+
   // Nothing scrolls the board by hand (overflow is hidden), but focus moving into a column
   // out of view, or find in page, still can. Once that settles, the nearest column becomes
   // the start and the window lines up on it again. A smooth scroll the view started itself
@@ -549,10 +572,11 @@ export function init(ctx) {
 
   return {
     // Opens on today at the left; overdue days sit behind it, and the back arrow turns red.
-    show() {
+    // arg: a task's id (from the search palette): the board opens on its day and points it out.
+    show(arg) {
       ctx.setRoute('');
       first = todayIso();
-      load().then(() => align());
+      load().then(() => { align(); if (arg) reveal(arg); });
     },
     onServer(m) { if (m.t === 'tasks_changed' && loaded) load(); },
     profileChanged() { if (loaded) render(); }
