@@ -15,6 +15,7 @@ import { openMenu } from '../lib/menu.js';
 import { confirmDialog, promptDialog } from '../lib/dialog.js';
 import { draggable, dragActive } from '../lib/drag.js';
 import { fromEdge } from '../shell/drawers.js';
+import { startChat } from '../shell/views.js';
 
 const STATES = [['waiting', 'Waiting'], ['in_progress', 'In progress'], ['complete', 'Complete']];
 const STATE_NAME = Object.fromEntries(STATES);
@@ -403,6 +404,7 @@ export function init(ctx) {
     // State isn't here: the round button on the card sets it.
     const toDay = (day, label) => ({ label, indent: true, hidden: !t.parentId && (t.day ?? null) === day, action: () => move(t.id, { day }, `Moved to ${label.toLowerCase()}.`) });
     const items = [
+      { label: 'Hand to Nova', action: () => handToNova(t) },
       { label: 'Rename', action: () => { const el = board.querySelector(`[data-id="${t.id}"] .task-title`); if (el) rename(t, el); } },
       { label: t.note ? 'Edit note' : 'Add a note', action: async () => {
         const note = await promptDialog({ title: 'Task note', label: t.title, value: t.note, multiline: true, submit: 'Save note' });
@@ -434,6 +436,28 @@ export function init(ctx) {
       } }
     ];
     return items;
+  }
+
+  // A new chat with the task, its note and its subtasks ready to send. The task's name leads,
+  // so it becomes the chat's title. Claude finds it with Nova's task tools (server
+  // chat/tools.js) to keep it up to date; listing never asks, so no ids are needed here.
+  function handToNova(t) {
+    let root = t;
+    while (root.parentId && tasks.get(root.parentId)) root = tasks.get(root.parentId);
+    const when = root.day ? `on ${dayName(root.day, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}` : 'unscheduled';
+    const lines = [`Help me with my task "${t.title}" (${STATE_NAME[t.state].toLowerCase()}, ${when}).`];
+    if (t.note) lines.push(`Note: ${t.note}`);
+    const subs = [];
+    const walk = (p, depth) => {
+      for (const c of childrenOf(p)) {
+        subs.push(`${'  '.repeat(depth)}- [${c.state === 'complete' ? 'x' : ' '}] ${c.title}${c.state === 'in_progress' ? ' (in progress)' : ''}`);
+        walk(c, depth + 1);
+      }
+    };
+    walk(t, 0);
+    if (subs.length) lines.push('Subtasks:', ...subs);
+    lines.push('', 'Keep the task and its subtasks up to date in my Nova task list as we go.');
+    startChat(`${lines.join('\n')}\n\n`);
   }
 
   // ---- Drag and drop ------------------------------------------------------

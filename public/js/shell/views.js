@@ -8,6 +8,7 @@ import { store } from '../lib/store.js';
 import { localDay } from '../lib/format.js';
 import { state, els } from '../state.js';
 import { openChat, newChat, sidebar } from '../chat/chats.js';
+import { setDraft } from '../chat/composer.js';
 
 // A new view adds its module here (and its entry in server/accounts/access.js VIEWS).
 const VIEW_MODULES = { brain: '../views/brain.js', tasks: '../views/tasks.js', notes: '../views/notes.js' };
@@ -138,6 +139,16 @@ export async function goTo(route) {
     return;
   }
   if (allowedViews().some((v) => v.id === route.id)) showView(route.id, { arg: route.arg });
+}
+
+// A new chat with text ready in the box, from another view (a task handed to Nova).
+// Nothing is sent until the user presses Send. False if the current view won't let go.
+export async function startChat(text) {
+  await showView('chats');
+  if (view !== 'chats') return false;
+  newChat(null);
+  setDraft(text);
+  return true;
 }
 
 // Opens a chat from anywhere, e.g. a notification: Chats first, unless the view won't let go.

@@ -2,27 +2,27 @@
 
 **A home for Claude Code's agent, in your browser.** Nova wraps the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) in a fast, installable web app built around a folder of markdown notes (your "brain"), so you get Claude Code's full power without living in a terminal or an IDE. It runs on your phone too.
 
-![Nova: a chat with Claude planning a sprint while two sub-agents work, shown in the presence panel](docs/screenshots/chat.png)
+![Nova: a chat planning a sprint while two sub-agents work, shown in the presence panel](docs/screenshots/chat.png)
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.4.5 · Node 22.13+ · four dependencies · no build step
+Version 0.5.1 · Node 22.13+ · five dependencies · no build step
 
 ## Why Nova
 
 - **Claude Code, not a chatbot.** Every chat is a real Claude Code session working in your notes: reading, searching, writing files, running tools and delegating to sub-agents. You watch it all happen and approve what matters.
-- **Your notes are the context.** Point Nova at a folder of markdown (an Obsidian vault works). Claude reads it, follows its rules and skills, and keeps it up to date.
+- **Your notes are the context.** Point Nova at a folder of markdown (an Obsidian vault works). Nova reads it, follows its rules and skills, and keeps it up to date.
 - **One place for the work around the chat.** Browse and edit the brain, plan your days and keep sticky notes, right beside the conversation.
 
 ## Features
 
 ### A chat built for an agent
 
-Replies stream in with markdown, collapsible thinking, and every tool call with its result. Sub-agents appear under the call that started them, and the presence panel shows what each one is doing, live. When Claude needs permission, you choose: allow once, for this chat, always, or deny. Pick the model, effort and permission mode per chat, attach files and images, and type `/` for your brain's own skills and commands.
+Replies stream in with markdown, collapsible thinking, and every tool call with its result. Sub-agents appear under the call that started them, and the presence panel shows what each one is doing, live. When Nova needs permission, you choose: allow once, for this chat, always, or deny. Pick the model, effort and permission mode per chat, attach files and images, and type `/` for your brain's own skills and commands.
 
 ### Your brain, in the browser
 
-Read and edit the notes Claude works from. Markdown renders with `[[wiki links]]`, embeds, images and video; HTML reports render safely in a sandbox. Search the whole brain by file or folder name from the box above the tree. Upload files and folders, and if the brain is a git repository, every save is committed.
+Read and edit the notes Nova works from. Markdown renders with `[[wiki links]]`, embeds, images and video; HTML reports render safely in a sandbox. Search the whole brain by file or folder name from the box above the tree. Upload files and folders, and if the brain is a git repository, every save is committed.
 
 ![The Brain view: a project note with properties, a sprint table and a checklist](docs/screenshots/brain.png)
 
@@ -30,13 +30,15 @@ Read and edit the notes Claude works from. Markdown renders with `[[wiki links]]
 
 Dictate instead of typing: the microphone beside the message box, and on any sticky note you're editing, turns speech into text at the cursor. It uses the browser's own speech recognition (Edge and Chrome send the audio to Microsoft or Google to turn it into text; Safari mostly works; Firefox has none), and needs https or this computer, so it's not offered over a plain-http network address.
 
-Nova can also read Claude's answers aloud, and Claude keeps them short and conversational while it does, so it works hands-free on a phone. It's off until you choose how in Settings, under Voice, on each device: **This browser's voices** (quality varies a lot: Edge's are natural, an iPhone only offers web pages its basic voices) or **Piper**, which sounds the same everywhere. Then the speaker button beside Send turns spoken replies on and off.
+Nova can also read its answers aloud, keeping them short and conversational while it does, so it works hands-free on a phone. It's off until you choose how in Settings, under Voice, on each device: **This browser's voices** (quality varies a lot: Edge's are natural, an iPhone only offers web pages its basic voices) or **Piper**, which sounds the same everywhere. Then the speaker button beside Send turns spoken replies on and off.
 
 Piper isn't bundled. If you already run [Piper](https://github.com/OHF-Voice/piper1-gpl), an admin enters its address once under Voice: Piper's HTTP server (`http://host:5000`) or Wyoming, such as Home Assistant's Piper add-on with its port published (`tcp://host:10200`). Nova relays text to it, and the browser's voice stands in for anything Piper can't read.
 
 ### Tasks and notes, beside the chat
 
 A day-by-day task board with subtasks and states, and a wall of coloured sticky notes. Drag whole cards to reorder or nest them, with the mouse or a long press on a touch screen. Both are counted on their tabs, so you can see what's left today at a glance.
+
+Nova can use them too. Ask in any chat ("plan my week from the sprint note", "tick off what we just finished", "make a sticky note of that") and it reads and changes your tasks and notes directly. Reading never asks; adding, changing and deleting ask for your approval like any other tool, naming the task or note, unless you've said always allow. **Hand to Nova** in a task's menu starts a new chat with the task and its subtasks, ready to send.
 
 <p>
   <img src="docs/screenshots/tasks.png" alt="The Tasks board with today's and tomorrow's tasks, one with subtasks" width="49%">
@@ -57,8 +59,8 @@ Install Nova as an app on desktop or phone. It's fully responsive (on a phone, s
 - Sign in to Claude from Settings with a Claude subscription or an Anthropic Console account; Nova never handles a token
 - Plan usage meters with reset times
 - Remembered approvals and extra folders per profile
-- Activity log and an animated avatar that follows what Claude is doing
-- Notifications and an app badge when Claude finishes or needs you
+- Activity log and an animated avatar that follows what Nova is doing
+- Notifications and an app badge when Nova finishes or needs you
 - One-click updates for Nova and the Agent SDK, tested before they install, with automatic rollback
 - The brain's `CLAUDE.md` and `.claude/` rules, skills and agents load into every chat, just as in Claude Code
 
@@ -114,11 +116,11 @@ For a tight setup, limit the container's outbound traffic to Anthropic and Claud
 
 - **Your data** lives in `data/` (or `/opt/nova/data`): `config.json`, the database, Nova's own Claude sign-in and chat transcripts, attachments and logs. Keep it private, backups included.
 - **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `updates.checkHours` (24, or 0 to stop checking).
-- **Security:** every request is checked against the signed-in profile, passwords and PINs are hashed with scrypt, sessions are HttpOnly and SameSite=Strict, a strict Content Security Policy is in place, and Claude's output is sanitised before it's shown. Claude acts as the user running Nova, so in a container, the container is the boundary.
+- **Security:** every request is checked against the signed-in profile, passwords and PINs are hashed with scrypt, sessions are HttpOnly and SameSite=Strict, a strict Content Security Policy is in place, and chat output is sanitised before it's shown. Nova's chats act as the user running Nova, so in a container, the container is the boundary.
 
 ## Under the hood
 
-Node.js with native ES modules in the browser: no framework, no bundler, and only four dependencies (the Agent SDK, `ws`, `marked`, `dompurify`). Data is in SQLite through `node:sqlite`.
+Node.js with native ES modules in the browser: no framework, no bundler, and only five dependencies (the Agent SDK, `ws`, `marked`, `dompurify`, and `zod` for the schemas of Nova's own task and note tools, which the SDK already needs). Data is in SQLite through `node:sqlite`.
 
 ```
 server/    the Node server: routes/, ws.js, and a folder per area (chat, brain, accounts, claude, views, updates, voice)

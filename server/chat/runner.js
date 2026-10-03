@@ -11,6 +11,7 @@ import { UserError } from '../core/errors.js';
 import { meta, modelInfo } from '../claude/meta.js';
 import { rememberableRules, isApproved, remember, sessionRules, folderPaths, folderFor, addFolder } from './permissions.js';
 import { uploadsDir } from './uploads.js';
+import { novaServer, READ_TOOLS, describeCall } from './tools.js';
 
 // Message types forwarded to the browser. Everything else stays server-side.
 const FORWARD = new Set([
@@ -75,12 +76,20 @@ class ChatRunner {
       ...sessionBase(profile),
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
-        append: `You are running in the Nova console under the "${profile}" profile. ` +
+        // In the app the assistant is Nova; Claude is the model underneath, which it says
+        // only when asked what it runs on.
+        append: 'Your name is Nova. You are the assistant in Nova, a console the user reaches from a browser or phone, and the user ' +
+          'knows you as Nova: call yourself Nova, never Claude or Claude Code. If asked what you run on or which model you are, ' +
+          'say you are Nova, running on Anthropic\'s Claude through Claude Code. ' +
+          `You are working under the "${profile}" profile. ` +
           `Notes specific to this profile live in ${profileDir(profile)}; read them when context about the profile would help.`
       },
       includePartialMessages: true,
       canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts)
     };
+    // The profile's tasks and sticky notes as tools (tools.js). Reading them never asks.
+    const nova = novaServer(profile);
+    if (nova) Object.assign(options, { mcpServers: { nova }, allowedTools: READ_TOOLS });
     if (model) options.model = model;
     if (effort) options.effort = effort;
     // Without a display mode the thinking text is left out and only a placeholder arrives.
@@ -126,7 +135,7 @@ class ChatRunner {
         }
       }
     } catch (err) {
-      this.emit({ t: 'error', message: `The Claude process stopped: ${err.message}` });
+      this.emit({ t: 'error', message: `This chat's process stopped: ${err.message}` });
     } finally {
       this.setState('closed');
       for (const resolve of this.pending.values()) resolve({ behavior: 'deny', message: 'Session closed.' });
@@ -195,7 +204,7 @@ class ChatRunner {
     const reqId = crypto.randomUUID();
     const payload = {
       t: 'permission', reqId, toolName, input,
-      title: opts.title || null,
+      title: describeCall(this.profile, toolName, input) || opts.title || null, // Nova's own tools name the task or note
       blockedPath: opts.blockedPath || null,
       folder: folderFor(opts.blockedPath), // offered as "Add this folder"; the answer uses this, never a path from the browser
       canRemember: Boolean(opts.suggestions?.length),

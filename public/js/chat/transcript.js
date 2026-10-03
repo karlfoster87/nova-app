@@ -6,6 +6,7 @@ import { h, svgIcon } from '../lib/dom.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { fileChip } from '../lib/widgets.js';
 import { confirmDialog } from '../lib/dialog.js';
+import { toolLabel } from '../lib/format.js';
 
 // The manifest a message with attachments carries (server/chat/uploads.js messageContent),
 // turned back into files for capsules: "- name (size, type) [id]: path".
@@ -33,6 +34,10 @@ const hhmm = (at) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit',
 const LINGER_MS = 30 * 1000;
 
 export function toolSummary(name, input = {}) {
+  if (name.startsWith('mcp__nova__')) {
+    const text = input.title || String(input.text || '').split('\n').find((l) => l.trim()) || '';
+    return text || (input.state ? input.state.replace('_', ' ') : input.day || '');
+  }
   const pick = input.command || input.file_path || input.path || input.pattern || input.url ||
     input.query || input.description || input.subagent_type || input.notebook_path;
   if (pick) return String(pick).split('\n')[0];
@@ -72,7 +77,7 @@ export class Transcript {
     mark.setAttribute('aria-hidden', 'true');
     mark.innerHTML = '<path d="M16 2.5 27.7 9.3v13.4L16 29.5 4.3 22.7V9.3Z"/><circle cx="16" cy="16" r="6.5"/><circle cx="16" cy="16" r="2.2"/>';
     this.el.replaceChildren(h('div', { class: 'empty' }, mark,
-      h('h2', {}, this.where ? `Start a chat in ${this.where}` : 'Start a chat'), h('p', {}, 'Claude works from your brain folder and this profile\'s notes.')));
+      h('h2', {}, this.where ? `Start a chat in ${this.where}` : 'Start a chat'), h('p', {}, 'Nova works from your brain folder and this profile\'s notes.')));
   }
 
   append(node, parent) {
@@ -90,7 +95,7 @@ export class Transcript {
     const body = h('div', { class: 'turn-body' });
     const time = at ? h('time', { class: 'turn-time', datetime: new Date(at).toISOString() }, hhmm(at)) : null;
     const el = h('article', { class: `turn turn-${kind}` }, turnIcon(kind),
-      h('div', { class: 'turn-head' }, h('span', { class: 'turn-name' }, kind === 'user' ? 'You' : 'Claude'), time), body);
+      h('div', { class: 'turn-head' }, h('span', { class: 'turn-name' }, kind === 'user' ? 'You' : 'Nova'), time), body);
     this.append(el);
     return { el, body };
   }
@@ -130,7 +135,7 @@ export class Transcript {
     const inputPre = h('pre', {}, JSON.stringify(block.input || {}, null, 2));
     const sub = AGENT_TOOLS.has(block.name) ? h('div', { class: 'subagent' }) : null;
     const body = h('div', { class: 'body' }, inputPre, sub);
-    const el = h('details', { class: `block tool${TECH_TOOLS.has(block.name) ? ' tech' : ''}` }, h('summary', {}, h('span', { class: 'tool-name' }, block.name), detail, status), body);
+    const el = h('details', { class: `block tool${TECH_TOOLS.has(block.name) ? ' tech' : ''}` }, h('summary', {}, h('span', { class: 'tool-name' }, toolLabel(block.name)), detail, status), body);
     const prev = this.tools.get(block.id); // the streamed version of this call, if any
     const entry = { el, status, body, sub, inputPre, detail, name: block.name, input: block.input || {}, done: false,
       startedAt: prev?.startedAt || Date.now() };
@@ -194,7 +199,7 @@ export class Transcript {
       } else if (cb.type === 'tool_use') {
         const t = this.makeTool({ ...cb, input: {} });
         b = { type: 'tool_use', el: t.el, entry: t, json: '' };
-        this.setActivity('tool', cb.name);
+        this.setActivity('tool', toolLabel(cb.name));
       } else return;
       this.live.blocks[ev.index] = b;
       this.live.el.append(b.el);
@@ -233,7 +238,7 @@ export class Transcript {
     if (this.live) { this.live.el.replaceWith(el); this.live = null; this.onChange(); }
     else { this.assistantBody(whenOf(msg) || Date.now()).append(el); this.onChange(); }
     const running = [...this.tools.values()].find((t) => !t.done);
-    if (running) this.setActivity('tool', running.name);
+    if (running) this.setActivity('tool', toolLabel(running.name));
   }
 
   handleSdk(msg) {
@@ -379,17 +384,18 @@ export class Transcript {
 
   permissionCard(req) {
     const decide = (behavior) => this.onAnswer(req.reqId, { behavior });
-    const summary = toolSummary(req.toolName, req.input) || JSON.stringify(req.input, null, 2);
-    const rules = req.alwaysRules?.join('\n');
+    // Nova's own tools name the task or note in the title, so their raw input (an id) is left out.
+    const summary = toolSummary(req.toolName, req.input) || (req.toolName.startsWith('mcp__nova__') ? '' : JSON.stringify(req.input, null, 2));
+    const rules = req.alwaysRules?.map(toolLabel).join('\n');
     const addFolder = async () => {
-      if (!(await confirmDialog({ title: 'Let Claude use this folder in all your chats?', confirm: 'Add folder',
+      if (!(await confirmDialog({ title: 'Let Nova use this folder in all your chats?', confirm: 'Add folder',
         message: `${req.folder}\n\nYou can remove it later in Settings, under Permissions.` }))) return;
       decide('add_folder');
     };
     return h('div', { class: 'ask', role: 'group', 'aria-label': 'Permission request' },
-      h('h3', {}, req.title || `Allow Claude to use ${req.toolName}?`),
+      h('h3', {}, req.title || `Allow Nova to use ${toolLabel(req.toolName)}?`),
       req.blockedPath ? h('p', { class: 'muted' }, `Outside the allowed folders: ${req.blockedPath}`) : null,
-      h('pre', {}, summary),
+      summary ? h('pre', {}, summary) : null,
       rules ? h('p', { class: 'muted' }, req.alwaysRules.length > 1 ? 'Always allow saves these rules for your profile:' : 'Always allow saves this rule for your profile:') : null,
       rules ? h('pre', {}, rules) : null, // long rules scroll inside the block like the summary
       req.folder ? h('p', { class: 'muted' }, `Add this folder lets every chat in your profile use ${req.folder}`) : null,
@@ -420,8 +426,8 @@ export class Transcript {
       }
       this.onAnswer(req.reqId, { behavior: 'answer', answers });
     };
-    const card = h('div', { class: 'ask', role: 'group', 'aria-label': 'Question from Claude' },
-      h('h3', {}, questions.length > 1 ? 'Claude has a few questions' : 'Claude has a question'),
+    const card = h('div', { class: 'ask', role: 'group', 'aria-label': 'Question from Nova' },
+      h('h3', {}, questions.length > 1 ? 'Nova has a few questions' : 'Nova has a question'),
       groups.map((g) => g.el),
       h('div', { class: 'row' },
         h('button', { class: 'send-btn', type: 'button', onclick: submit }, 'Send answers'),

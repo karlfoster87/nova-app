@@ -5,7 +5,7 @@ import { q, transaction, renameProfileRows, deleteProfileRows } from '../core/db
 import { hashSecret, verifySecret } from './auth.js';
 import { profileDir, profileDirPath } from '../core/config.js';
 import { hub } from '../core/hub.js';
-import { runnersOf, busyRunners } from '../chat/runner.js';
+import { runnersOf, busyRunners, refreshRunners } from '../chat/runner.js';
 import { UserError } from '../core/errors.js';
 import { renamePath } from '../core/paths.js';
 import { accessFor, mergeAccess } from './access.js';
@@ -161,6 +161,7 @@ export function updateProfile(actor, target, body) {
   if (prefs !== null) q.setPrefs.run(prefs, name);
   if (roleChange) q.setRole.run(body.role, name);
   if (roleChange || access !== null || prefs !== null) hub.toProfile(name, { t: 'profile_changed' }); // its tabs refresh what they show
+  if (roleChange || access !== null) refreshRunners(name); // chats offer the task and note tools it may now use
   if ('password' in body) q.setPassword.run(hashSecret(body.password), name);
   if ('pin' in body) q.setPin.run(clearPin ? null : hashSecret(String(body.pin)), name);
   return name;

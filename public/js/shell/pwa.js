@@ -2,7 +2,7 @@
 //   Launches: with launch_handler focus-existing (manifest), opening Nova or one of its
 //     shortcuts while a window is open brings that window forward instead of opening another;
 //     the address it was asked for arrives here and is routed like a #view link.
-//   Notifications: "Claude finished" and "needs you" while this window or tab is open but not
+//   Notifications: "Nova finished" and "needs you" while this window or tab is open but not
 //     in front. Opt-in per browser (Settings, Your profile). Browsers that only show
 //     notifications through a service worker (Android) can't use them yet.
 //   Badge: the number of chats waiting for you on the app's icon: an approval or question
@@ -81,7 +81,7 @@ export function initPwa(ctx) {
         setStatus('This browser is blocking notifications from Nova. Allow them in its site settings for Nova, then turn this on again.', true);
         return;
       }
-      if (!show('Notifications are on', 'Nova will tell you when Claude finishes or needs you while it isn\'t in front.', null)) {
+      if (!show('Notifications are on', 'Nova will tell you when it finishes or needs you while it isn\'t in front.', null)) {
         form.notify.checked = false;
         setStatus('This browser only shows notifications from apps that run a service worker, which Nova doesn\'t use yet.', true);
         return;
@@ -101,7 +101,7 @@ export function initPwa(ctx) {
         if (!asks.has(m.chatId)) asks.set(m.chatId, new Set());
         asks.get(m.chatId).add(m.reqId);
         const question = m.toolName === 'AskUserQuestion';
-        notify(`ask:${m.reqId}`, question ? 'Claude has a question' : 'Approval needed',
+        notify(`ask:${m.reqId}`, question ? 'Nova has a question' : 'Approval needed',
           question ? ctx.titleOf(m.chatId) : `${ctx.titleOf(m.chatId)}: ${m.title || m.toolName}`, m.chatId);
         break;
       }
@@ -118,7 +118,7 @@ export function initPwa(ctx) {
         if (m.msg.type === 'result' && !m.msg.parent_tool_use_id) {
           if (away()) awayDone.add(m.chatId);
           const ok = !m.msg.subtype || m.msg.subtype === 'success';
-          notify(`done:${m.msg.uuid || `${m.chatId}:${Date.now()}`}`, ok ? 'Claude finished' : 'Claude stopped',
+          notify(`done:${m.msg.uuid || `${m.chatId}:${Date.now()}`}`, ok ? 'Nova finished' : 'Nova stopped',
             ok ? ctx.titleOf(m.chatId) : `${ctx.titleOf(m.chatId)} (${m.msg.subtype.replace(/_/g, ' ')})`, m.chatId);
         }
         break;

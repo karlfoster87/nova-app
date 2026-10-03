@@ -90,7 +90,7 @@ function syncSpeak() {
   els.speak.hidden = !canSpeakReplies();
   els.speak.setAttribute('aria-pressed', String(on));
   els.speak.classList.toggle('speaking', talking);
-  const label = talking ? 'Stop reading this reply' : on ? 'Spoken replies are on: Claude keeps replies short and reads them aloud. Click to turn off.' : 'Speak replies: Claude keeps replies short and reads them aloud';
+  const label = talking ? 'Stop reading this reply' : on ? 'Spoken replies are on: Nova keeps replies short and reads them aloud. Click to turn off.' : 'Speak replies: Nova keeps replies short and reads them aloud';
   els.speak.title = label;
   els.speak.setAttribute('aria-label', talking ? 'Stop reading' : 'Speak replies');
 }
@@ -165,6 +165,14 @@ function renderAttachments() {
   els.attachList.hidden = !state.attachments.length;
   els.attachList.replaceChildren(...state.attachments.map((a) =>
     fileChip(a, { href: a.id ? `/api/uploads/${a.id}` : null, progress: a.xhr ? a.progress : null, error: a.error, onRemove: () => removeAttachment(a) })));
+}
+
+// Puts text in the box for the user to check and send, e.g. a task handed to Nova.
+export function setDraft(text) {
+  els.input.value = text;
+  autoGrow();
+  els.input.focus();
+  els.input.setSelectionRange(text.length, text.length);
 }
 
 els.attachBtn.addEventListener('click', () => els.fileInput.click());

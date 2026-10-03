@@ -74,10 +74,10 @@
           <label class="picker"><span class="sr">Model</span><select id="modelSelect"></select></label>
           <label class="picker" id="effortWrap"><span class="sr">Effort</span><select id="effortSelect"></select></label>
           <label class="picker"><span class="sr">Permissions</span><select id="modeSelect">
-            <option value="default" title="Claude asks before running commands or changing files">Ask first</option>
+            <option value="default" title="Nova asks before running commands or changing files">Ask first</option>
             <option value="acceptEdits" title="File edits go ahead without asking; commands still ask">Auto-accept edits</option>
             <option value="auto" title="A safety classifier approves or blocks each action instead of asking you">Auto mode</option>
-            <option value="plan" title="Claude reads and plans but doesn't change anything">Plan only</option>
+            <option value="plan" title="Nova reads and plans but doesn't change anything">Plan only</option>
           </select></label>
         </div>
         <span class="chat-state" id="chatState" data-state="idle"><i aria-hidden="true"></i><span>Ready</span></span>
@@ -112,7 +112,7 @@
       </div>
     </main>
 
-    <aside class="presence frame" id="presence" data-state="idle" aria-label="Claude status">
+    <aside class="presence frame" id="presence" data-state="idle" aria-label="Nova status">
       <div class="ptabs" role="tablist" aria-label="Status panel">
         <button type="button" role="tab" data-ptab="avatar" aria-selected="true">Avatar</button>
         <button type="button" role="tab" data-ptab="logs" aria-selected="false" tabindex="-1">Logs<span class="tab-badge" id="logBadge" hidden></span></button>
@@ -237,7 +237,7 @@
       </form>
       <form id="notifyForm" class="stack" hidden>
         <h3>Notifications</h3>
-        <label class="check"><input type="checkbox" name="notify"> Tell me when Claude finishes or needs me</label>
+        <label class="check"><input type="checkbox" name="notify"> Tell me when Nova finishes or needs me</label>
         <p class="muted">Saved in this browser only. They show while Nova is open but not in front.</p>
         <p class="form-status" role="status"></p>
       </form>
@@ -297,7 +297,7 @@
     <section class="panel" data-panel="permissions" role="tabpanel" hidden>
       <form id="folderForm" class="stack">
         <h3>Extra folders</h3>
-        <p class="muted">Folders outside the brain that Claude may use in your chats, such as a project folder, a network share or a mount point. They apply to your profile only. Open chats pick up a change once they finish what they're doing.</p>
+        <p class="muted">Folders outside the brain that Nova may use in your chats, such as a project folder, a network share or a mount point. They apply to your profile only. Open chats pick up a change once they finish what they're doing.</p>
         <div id="folderRows" class="profile-rows"></div>
         <label>Folder path <input name="path" type="text" autocomplete="off" spellcheck="false" required></label>
         <div class="row"><button type="submit" class="send-btn">Add folder</button></div>
@@ -350,7 +350,7 @@
 
       <form id="brainForm" class="stack">
         <h3>Brain folder</h3>
-        <p class="muted">The folder Claude works from. Its <code>CLAUDE.md</code> and <code>.claude</code> settings load into every chat, and profile notes live in its <code>profiles</code> folder.</p>
+        <p class="muted">The folder Nova works from. Its <code>CLAUDE.md</code> and <code>.claude</code> settings load into every chat, and profile notes live in its <code>profiles</code> folder.</p>
         <label>Folder path <input name="brainDir" type="text" autocomplete="off" spellcheck="false" required></label>
         <p class="muted">Saving restarts Nova, which closes open chats. Chats and categories belong to the brain folder they were made in: after the switch you'll see the new folder's, and switching back brings these back.</p>
         <div class="row"><button type="submit" class="send-btn">Save and restart</button></div>
@@ -370,8 +370,8 @@
               <option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option>
             </select></label>
           <label>Close idle chats after (minutes) <input name="idleMinutes" type="number" min="5" max="1440" step="1"></label>
-          <label class="check full"><input type="checkbox" name="showThinking"> Show Claude's thinking</label>
-          <p class="muted full">A summary of Claude's reasoning streams into each reply's Thinking block. It costs nothing extra, since the thinking happens either way. Open chats switch over once they finish what they're doing.</p>
+          <label class="check full"><input type="checkbox" name="showThinking"> Show Nova's thinking</label>
+          <p class="muted full">A summary of Nova's reasoning streams into each reply's Thinking block. It costs nothing extra, since the thinking happens either way. Open chats switch over once they finish what they're doing.</p>
         </fieldset>
 
         <div class="row"><button type="submit" class="send-btn">Save settings</button></div>

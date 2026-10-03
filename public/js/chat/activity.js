@@ -5,25 +5,26 @@
 import { state, titleOf } from '../state.js';
 import { log } from '../presence/log.js';
 import { toolSummary, AGENT_TOOLS } from './transcript.js';
+import { toolLabel } from '../lib/format.js';
 import { modeName } from './pickers.js';
 
 const logged = new Set();
 const once = (key) => !logged.has(key) && logged.add(key);
 const toolNames = new Map();  // tool_use_id -> tool name, to name a failure
 const agentNames = new Map(); // Agent tool_use_id or task id -> sub-agent type
-const withSummary = (name, input) => { const s = toolSummary(name, input); return s ? `${name}: ${s}` : name; };
+const withSummary = (name, input) => { const s = toolSummary(name, input); return s ? `${toolLabel(name)}: ${s}` : toolLabel(name); };
 
 export function logEvent(m) {
   const where = m.chatId ? titleOf(m.chatId) : '';
   switch (m.t) {
     case 'state': {
       const before = state.chatState.get(m.chatId);
-      if (m.state === 'running' && before !== 'running') log('chat', 'Claude started working', where);
+      if (m.state === 'running' && before !== 'running') log('chat', 'Nova started working', where);
       else if (m.state === 'closed' && before && before !== 'closed') log('system', 'Chat process closed', where);
       return;
     }
     case 'permission':
-      if (once(`req:${m.reqId}`)) log('prompt', m.toolName === 'AskUserQuestion' ? 'Claude asked you a question' : `Approval needed: ${m.title || m.toolName}`, where);
+      if (once(`req:${m.reqId}`)) log('prompt', m.toolName === 'AskUserQuestion' ? 'Nova asked you a question' : `Approval needed: ${m.title || m.toolName}`, where);
       return;
     case 'permission_resolved': log('prompt', 'Prompt answered', where); return;
     case 'permission_cancelled': log('prompt', 'Prompt withdrawn', where); return;
@@ -41,7 +42,7 @@ export function logEvent(m) {
   if (msg.type === 'assistant') {
     for (const b of msg.message?.content || []) {
       if (b.type !== 'tool_use' || !once(`tool:${b.id}`)) continue;
-      toolNames.set(b.id, b.name);
+      toolNames.set(b.id, toolLabel(b.name));
       if (msg.parent_tool_use_id) log('agent', `${agentNames.get(msg.parent_tool_use_id) || 'Sub-agent'} used ${withSummary(b.name, b.input)}`, where);
       else if (AGENT_TOOLS.has(b.name)) {
         const name = b.input?.subagent_type || 'a sub-agent';

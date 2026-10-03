@@ -38,6 +38,7 @@ q.setAccess.run(JSON.stringify({ brain: 'none' }), 'smoke-c'); // smoke-b keeps 
 // unrelated one, which must not be copied.
 const OLD_CHAT = crypto.randomUUID(), STRANGER = crypto.randomUUID();
 db.prepare("INSERT INTO chats (id, profile, title, created_at, updated_at, brain) VALUES (?, 'smoke-a', 'old', 0, 0, 'smoke-other-brain')").run(OLD_CHAT);
+const toolResults = await novaToolChecks();
 db.close();
 const oldClaude = path.join(tmp, 'old-claude');
 const oldProject = path.join(oldClaude, 'projects', 'C--old-brain');
@@ -151,6 +152,7 @@ async function waitForServer() {
 }
 
 async function run() {
+  for (const [ok, label] of toolResults) check(ok, label);
   await waitForServer();
   const evil = 'http://evil.example';
 
@@ -853,6 +855,90 @@ async function attachments(a, b) {
   wsB.close();
   check((await http('DELETE', `/api/uploads/${file.id}`, { cookie: a })).status === 200 && !fs.existsSync(path.join(tmp, 'uploads', 'smoke-a', file.id)),
     'the owner removes an unsent file');
+}
+
+// Nova's task and note tools for chats (server/chat/tools.js), called directly on the
+// throwaway database before the server starts, since driving them through Claude would need
+// a sign-in and quota. Returns [ok, label] pairs; run() reports them. Two temporary profiles
+// are removed again so the rest of the test sees only its own three.
+async function novaToolChecks() {
+  const out = [];
+  const t = (ok, label) => out.push([!!ok, label]);
+  const { novaTools, describeCall } = await import('../server/chat/tools.js');
+  const { deleteProfileRows } = await import('../server/core/db.js');
+  q.addProfile.run('smoke-tools', hashSecret(PASSWORD), Date.now(), 'user', null);
+  q.addProfile.run('smoke-tools-view', hashSecret(PASSWORD), Date.now(), 'user', null);
+  q.setAccess.run(JSON.stringify({ tasks: 'read', notes: 'none' }), 'smoke-tools-view');
+  try {
+    const tools = (p) => new Map(novaTools(p).map((d) => [d.name, d]));
+    const mine = tools('smoke-tools');
+    const call = async (name, args = {}, map = mine) => {
+      const r = await map.get(name).handler(args, {});
+      const text = r.content?.[0]?.text || '';
+      let data = text;
+      try { data = JSON.parse(text); } catch {}
+      return { error: !!r.isError, text, data };
+    };
+    t(mine.size === 10, 'an editing profile gets all ten task and note tools');
+    const viewOnly = tools('smoke-tools-view');
+    t(JSON.stringify([...viewOnly.keys()]) === '["list_tasks"]', 'a view-only profile gets only the list tool, and none for a view it can\'t see');
+    t(mine.get('list_tasks').annotations?.readOnlyHint && mine.get('delete_task').annotations?.destructiveHint, 'read and delete tools are marked as such');
+
+    const today = '2026-10-03';
+    const parent = (await call('add_task', { title: 'Plan the week', day: today })).data;
+    const child = (await call('add_task', { title: 'Draft sprint goals', parent_id: parent.id })).data;
+    t(parent.day === today && child.parentId === parent.id && child.day === null, 'add_task adds a task on a day and a subtask under it');
+    const tree = (await call('list_tasks', { today })).data;
+    t(Array.isArray(tree) && tree[0]?.title === 'Plan the week' && tree[0].subtasks?.[0]?.title === 'Draft sprint goals', 'list_tasks returns tasks with their subtasks nested');
+    t((await call('update_task', { id: child.id, state: 'complete' })).data.state === 'complete' &&
+      (await call('list_tasks', { today })).data[0].state === 'complete', 'completing the only subtask completes its parent');
+    t((await call('move_task', { id: parent.id, day: '2026-10-05' })).data.day === '2026-10-05', 'move_task moves a task to another day');
+    t(describeCall('smoke-tools', 'mcp__nova__delete_task', { id: parent.id }) === 'Delete the task "Plan the week" and its subtask',
+      'a delete prompt names the task and counts its subtasks');
+    t(describeCall('smoke-tools', 'mcp__nova__add_task', { title: 'X', day: today }) === `Add the task "X" on ${today}`, 'an add prompt says where the task goes');
+
+    // Another profile's rows are out of reach, through the tools and in prompts.
+    const other = (await call('list_tasks', { today }, viewOnly)).data;
+    t(typeof other === 'string' && /no tasks/.test(other), 'another profile doesn\'t see these tasks');
+    const theirs = await call('update_task', { id: parent.id, title: 'hijacked' }, tools('smoke-a'));
+    t(theirs.error && /doesn't exist/.test(theirs.text), 'a tool can\'t change another profile\'s task');
+    t(describeCall('smoke-a', 'mcp__nova__delete_task', { id: parent.id }) === 'Delete a task', 'a prompt never shows another profile\'s task title');
+    t((await call('add_task', { title: '  ' })).error, 'a bad task comes back as a tool error, not a crash');
+
+    const note = (await call('add_note', { text: 'Groceries\n- milk', color: 'green', long_standing: true })).data;
+    t(note.color === 'green' && note.longStanding === true, 'add_note adds a long-standing note in a colour');
+    t((await call('update_note', { id: note.id, long_standing: false })).data.longStanding === false, 'update_note makes it active');
+    t((await call('add_note', { text: 'x', color: 'orange' })).error, 'an unknown colour is refused');
+    t(describeCall('smoke-tools', 'mcp__nova__delete_note', { id: note.id }) === 'Delete the sticky note "Groceries"', 'a note prompt names the note by its first line');
+    t((await call('delete_note', { id: note.id })).text === 'Deleted.' && (await call('list_notes')).text === 'There are no sticky notes.', 'delete_note deletes a note');
+    t((await call('delete_task', { id: parent.id })).data.deleted === 2, 'delete_task deletes a task with its subtasks');
+
+    q.setAccess.run(JSON.stringify({ tasks: 'read' }), 'smoke-tools');
+    const stale = await call('add_task', { title: 'After losing edit access', day: today });
+    t(stale.error && /can view the task list but not change it/.test(stale.text), 'a tool checks access on every call, not only when the chat started');
+
+    // Claude Code itself must load the server, as a chat starts it. An idle session sends no
+    // prompt, so this needs no sign-in. It guards against an Agent SDK update changing the wiring.
+    const { idleSession } = await import('../server/claude/session.js');
+    const { sessionBase } = await import('../server/chat/runner.js');
+    const { novaServer, READ_TOOLS } = await import('../server/chat/tools.js');
+    const s = idleSession({ ...sessionBase('smoke-a'), mcpServers: { nova: novaServer('smoke-a') }, allowedTools: READ_TOOLS });
+    try {
+      await s.query.initializationResult();
+      let nova = null;
+      for (let i = 0; i < 10 && nova?.status !== 'connected'; i++) {
+        nova = (await s.query.mcpServerStatus()).find((x) => x.name === 'nova');
+        if (nova?.status !== 'connected') await new Promise((r) => setTimeout(r, 1000));
+      }
+      t(nova?.status === 'connected' && nova.tools?.length === 10, 'Claude Code connects the nova tool server with all ten tools');
+    } finally { s.close(); }
+  } catch (err) {
+    t(false, `the task and note tools threw: ${err.message}`);
+  } finally {
+    deleteProfileRows('smoke-tools');
+    deleteProfileRows('smoke-tools-view');
+  }
+  return out;
 }
 
 try {

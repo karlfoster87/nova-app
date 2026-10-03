@@ -7,7 +7,7 @@
 import { h } from '../lib/dom.js';
 
 const FRESH = 60 * 1000; // refetch after this, or when the open chat changes
-const GROUPS = { brain: 'Skills in this brain', claude: 'Claude Code' };
+const GROUPS = { brain: 'Skills in this brain', claude: 'Built-in commands' };
 
 // ctx: { input, menu, currentChat() -> chatId or null, onFill() after the box's text changes }
 export function initCommands({ input, menu, currentChat, onFill }) {

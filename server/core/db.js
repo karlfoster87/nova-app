@@ -170,6 +170,7 @@ export const q = {
   placeTask: db.prepare('UPDATE tasks SET parent_id = ?, day = ?, position = ?, updated_at = ? WHERE id = ? AND profile = ?'),
   setTaskPosition: db.prepare('UPDATE tasks SET position = ? WHERE id = ? AND profile = ?'),
   taskChildStates: db.prepare('SELECT state FROM tasks WHERE parent_id = ? AND profile = ?'),
+  taskChildren: db.prepare('SELECT id FROM tasks WHERE parent_id = ? AND profile = ?'),
   deleteTaskTree: db.prepare(`WITH RECURSIVE sub(id) AS (SELECT ?1 UNION ALL SELECT t.id FROM tasks t JOIN sub ON t.parent_id = sub.id)
     DELETE FROM tasks WHERE profile = ?2 AND id IN (SELECT id FROM sub)`),
 

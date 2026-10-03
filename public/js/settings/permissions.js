@@ -2,6 +2,7 @@
 // allow" rules). An admin can also share a rule with every profile.
 import { $, h } from '../lib/dom.js';
 import { api } from '../lib/api.js';
+import { toolLabel } from '../lib/format.js';
 import { confirmDialog } from '../lib/dialog.js';
 import { run, setStatus, isAdmin } from './forms.js';
 
@@ -22,7 +23,7 @@ function renderFolders(list) {
   folderRows.replaceChildren(...(list.length ? list.map((f) => {
     const remove = h('button', { type: 'button', class: 'text-btn' }, 'Remove');
     remove.addEventListener('click', async () => {
-      if (!(await confirmDialog({ title: 'Remove this folder?', message: `Claude will no longer be able to use ${f.path} in your chats.`,
+      if (!(await confirmDialog({ title: 'Remove this folder?', message: `Nova will no longer be able to use ${f.path} in your chats.`,
         confirm: 'Remove folder', danger: true }))) return;
       try { renderFolders(await api('DELETE', '/api/folders', { path: f.path })); setStatus(folderStatus, `Removed ${f.path}.`); }
       catch (err) { setStatus(folderStatus, err.message, true); }
@@ -35,8 +36,8 @@ folderForm.addEventListener('submit', (e) => {
   e.preventDefault();
   run(folderForm, async () => {
     const path = folderForm.path.value.trim();
-    if (!(await confirmDialog({ title: 'Let Claude use this folder in all your chats?', confirm: 'Add folder',
-      message: `${path}\n\nClaude can read files there, and change them when you allow it.` }))) return '';
+    if (!(await confirmDialog({ title: 'Let Nova use this folder in all your chats?', confirm: 'Add folder',
+      message: `${path}\n\nNova can read files there, and change them when you allow it.` }))) return '';
     const r = await api('POST', '/api/folders', { path });
     folderForm.reset();
     renderFolders(r.folders);
@@ -82,7 +83,7 @@ function ruleCard(a) {
   });
   const added = new Date(a.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' });
   return h('div', { class: 'rule' },
-    h('div', { class: 'rule-head' }, h('strong', {}, a.tool), h('span', { class: 'muted' }, `Added ${added}`)),
+    h('div', { class: 'rule-head' }, h('strong', {}, toolLabel(a.tool)), h('span', { class: 'muted' }, `Added ${added}`)),
     text,
     h('div', { class: 'row' }, more, h('span', { class: 'spacer' }), share, remove));
 }

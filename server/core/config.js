@@ -168,7 +168,7 @@ export function profileDir(profile) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'README.md'),
-      `# ${profile}\n\nNotes specific to the ${profile} profile. Claude can read and edit this folder during chats in this profile.\n`);
+      `# ${profile}\n\nNotes specific to the ${profile} profile. Nova can read and edit this folder during chats in this profile.\n`);
   }
   return dir;
 }

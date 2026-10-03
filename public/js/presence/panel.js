@@ -111,7 +111,7 @@ function renderAgents() {
   const rows = list.map((a) => { const li = existing.get(a.id) || agentRow(a); paintAgent(li, a); return li; });
   if (!rows.length) {
     if (!agentsEl.querySelector('.agents-empty')) {
-      agentsEl.replaceChildren(el('li', 'agents-empty', 'No sub-agents running. When Claude hands work to one, it shows here with its link activity.'));
+      agentsEl.replaceChildren(el('li', 'agents-empty', 'No sub-agents running. When Nova hands work to one, it shows here with its link activity.'));
     }
   } else {
     agentsEl.querySelector('.agents-empty')?.remove();

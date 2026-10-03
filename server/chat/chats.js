@@ -86,7 +86,7 @@ export async function sendMessage(profile, row, { text, attachments, voice, mode
       : 'Nova isn\'t signed in to Claude. Ask an admin to sign in from Settings, then send again.');
   }
   const runner = runnerFor(row, { model, effort, mode });
-  if (runner.state === 'running') throw new UserError('Claude is still responding. Stop it or wait before sending.');
+  if (runner.state === 'running') throw new UserError('Nova is still responding. Stop it or wait before sending.');
   if (mode && runner.mode !== mode) await runner.setMode(mode);
   else if (mode && row.permission_mode !== mode) q.setChatMode.run(mode, row.id, profile);
   let content = messageContent(profile, row.id, text, files);
