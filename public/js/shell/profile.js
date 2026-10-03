@@ -3,7 +3,7 @@
 // and header, and the views and badges follow its access.
 import { $, h } from '../lib/dom.js';
 import { pictureUrl } from '../lib/widgets.js';
-import { setPiper, canSpeakAny } from '../lib/speech.js';
+import { setPiper } from '../lib/speech.js';
 import { state } from '../state.js';
 import { views, renderViewTabs, refreshBadges } from './views.js';
 
@@ -24,7 +24,6 @@ export async function refreshMe() {
   $('version').textContent = me.version ? `v${me.version}` : '';
   // Spoken replies can come from Piper when an admin has set it up (lib/speech.js).
   setPiper(me.voice?.piper);
-  $('speakBtn').hidden = !canSpeakAny();
   renderViewTabs();
   refreshBadges();
   for (const v of views.values()) v.profileChanged?.();

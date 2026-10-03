@@ -102,20 +102,23 @@ function fitText(before, words) {
 // because Chrome cuts off a single long utterance after about 15 seconds, and so Piper's first
 // sentence plays while the next is being made.
 //
-// Two engines: the browser's own voices (speechSynthesis), or Piper through Nova's server
-// (server/voice/piper.js) when an admin has set it up. Piper sounds the same on every device;
-// it's what Automatic means when it's there, and the browser's voice stands in if it fails.
+// The engine is picked per browser in Settings (nova.voice.engine): 'none', the default, means
+// no spoken replies and no speaker button; 'browser' uses speechSynthesis with a voice from the
+// browser's own list; 'piper' goes through Nova's server to a Piper an admin has set up
+// (server/voice/piper.js), so every device sounds the same. A sentence Piper can't make is read
+// by the browser instead.
 
-export const PIPER = 'piper'; // the stored voice name that picks Piper
-// Names no voice, only the language, so the device's own default voice for it reads. Safari
-// hides downloaded Premium and Enhanced voices from web pages, but iOS may still use one when
-// it's the default in Settings, Accessibility, Spoken Content.
-export const SYSTEM = 'system';
+export const ENGINES = ['none', 'browser', 'piper'];
 let piper = false;
-export const setPiper = (on) => { piper = !!on; };
+const changeListeners = new Set();
+const changed = () => { for (const fn of changeListeners) fn(); };
+export const onVoiceChange = (fn) => changeListeners.add(fn);
+export const setPiper = (on) => { piper = !!on; changed(); };
 export const hasPiper = () => piper;
-export const canSpeakAny = () => canSpeak || piper;
-const usePiper = () => piper && [PIPER, ''].includes(store.get('voice.name', ''));
+export function engine() { const e = store.get('voice.engine', 'none'); return ENGINES.includes(e) ? e : 'none'; }
+export function setEngine(e) { store.set('voice.engine', ENGINES.includes(e) ? e : 'none'); changed(); }
+// Whether replies can be spoken here: an engine is picked and can run in this browser.
+export const canSpeakReplies = () => (engine() === 'browser' ? canSpeak : engine() === 'piper' ? piper : false);
 
 let queued = []; // utterances not finished, kept referenced (Chrome drops events of collected ones)
 let pending = 0; // Piper sentences not yet played
@@ -124,38 +127,11 @@ export const isSpeaking = () => queued.length > 0 || pending > 0;
 const tell = () => { for (const fn of listeners) fn(isSpeaking()); };
 export const onSpeaking = (fn) => listeners.add(fn);
 
-// Apple's joke voices (Bubbles, Zarvox…), its old robotic ones and the Eloquence set (Eddy,
-// Grandma…) are left out: nobody wants a reply read by them, and on an iPhone they crowd the list.
-const NOVELTY = new Set(['albert', 'bad news', 'bahh', 'bells', 'boing', 'bubbles', 'cellos', 'deranged', 'good news', 'hysterical',
-  'jester', 'junior', 'organ', 'pipe organ', 'superstar', 'trinoids', 'whisper', 'wobble', 'zarvox', 'ralph', 'fred', 'kathy',
-  'princess', 'agnes', 'bruce', 'vicki', 'victoria', 'eddy', 'flo', 'grandma', 'grandpa', 'reed', 'rocko', 'sandy', 'shelley']);
-const novelty = (v) => NOVELTY.has(v.name.replace(/\s*\(.*$/, '').trim().toLowerCase());
-// Quality tiers: Edge's Natural voices and Apple's downloaded Premium ones, then Apple's
-// Enhanced and Chrome's Google voices, then the compact system voices.
-const tier = (v) => {
-  const id = `${v.name} ${v.voiceURI}`;
-  return /natural|premium|neural/i.test(id) ? 0 : /enhanced|online|google/i.test(id) ? 1 : 2;
-};
-export const appleVoices = () => canSpeak && speechSynthesis.getVoices().some((v) => /^com\.apple\./.test(v.voiceURI));
-
-// The browser's voices, best first: the browser's language, by quality, with its own region
-// winning a tie (a Premium American voice beats a compact British one, a Premium British one
-// beats both). Other languages follow. Some browsers (Safari especially) list none until a
-// moment after the page loads; Settings asks again.
-export function voices() {
-  if (!canSpeak) return [];
-  const all = speechSynthesis.getVoices().filter((v) => !novelty(v));
-  const l = lang().toLowerCase(), base = l.split('-')[0];
-  const mine = (v) => v.lang.toLowerCase().startsWith(base);
-  const rank = (v) => tier(v) * 2 + (v.lang.toLowerCase().replace('_', '-') === l ? 0 : 1);
-  return all.filter(mine).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)).concat(all.filter((v) => !mine(v)));
-}
-function pickVoice() {
-  const name = store.get('voice.name', '');
-  if (name === SYSTEM) return null;
-  const list = voices();
-  return list.find((v) => v.name === name) || list[0] || null;
-}
+// The browser's voices exactly as it lists them. Some browsers (Safari especially) list none
+// until a moment after the page loads; Settings asks again. '' is the browser's default voice
+// for the page's language.
+export const voices = () => (canSpeak ? speechSynthesis.getVoices() : []);
+const pickVoice = () => { const name = store.get('voice.name', ''); return (name && voices().find((v) => v.name === name)) || null; };
 export const voiceRate = () => Number(store.get('voice.rate', 1)) || 1;
 
 export function stopSpeaking() {
@@ -170,8 +146,8 @@ export function stopSpeaking() {
 export function speak(markdown) {
   const parts = chunks(speakable(markdown));
   if (!parts.length) return;
-  if (usePiper()) speakPiper(parts);
-  else speakBrowser(parts);
+  if (engine() === 'piper' && piper) speakPiper(parts);
+  else if (engine() === 'browser') speakBrowser(parts);
 }
 
 function speakBrowser(parts) {
@@ -242,7 +218,7 @@ export function unlockSpeech() {
     u.volume = 0;
     speechSynthesis.speak(u);
   }
-  if (piper && !isSpeaking()) {
+  if (engine() === 'piper' && piper && !isSpeaking()) {
     const p = getPlayer();
     p.src = URL.createObjectURL(new Blob([silentWav()], { type: 'audio/wav' }));
     p.play().catch(() => {});

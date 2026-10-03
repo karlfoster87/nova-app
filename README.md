@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.4.3 · Node 22.13+ · four dependencies · no build step
+Version 0.4.4 · Node 22.13+ · four dependencies · no build step
 
 ## Why Nova
 
@@ -28,9 +28,11 @@ Read and edit the notes Claude works from. Markdown renders with `[[wiki links]]
 
 ### Talk to it
 
-Dictate instead of typing: the microphone beside the message box, and on any sticky note you're editing, turns speech into text at the cursor. Turn on spoken replies with the speaker button and Nova reads Claude's answers aloud, and Claude keeps them short and conversational while it's on, so it works hands-free on a phone. Pick the voice and speed in Settings. It uses the browser's own speech features: Edge and Chrome do both (their dictation sends the audio to Microsoft or Google to turn it into text), Safari mostly, Firefox only reads aloud. Dictation needs https or this computer, so it's not offered over a plain-http network address.
+Dictate instead of typing: the microphone beside the message box, and on any sticky note you're editing, turns speech into text at the cursor. It uses the browser's own speech recognition (Edge and Chrome send the audio to Microsoft or Google to turn it into text; Safari mostly works; Firefox has none), and needs https or this computer, so it's not offered over a plain-http network address.
 
-Browser voices vary a lot (Edge's are natural, an iPhone's are robotic unless you download a Premium voice). If you already run [Piper](https://github.com/OHF-Voice/piper1-gpl), an admin can point Nova at it in Settings, under Voice: Piper's HTTP server (`http://host:5000`) or Wyoming, such as Home Assistant's Piper (`tcp://host:10200`). Replies then sound the same on every device. Nova only relays text to it, so nothing extra is installed, and the browser's voice stands in if Piper can't be reached.
+Nova can also read Claude's answers aloud, and Claude keeps them short and conversational while it does, so it works hands-free on a phone. It's off until you choose how in Settings, under Voice, on each device: **This browser's voices** (quality varies a lot: Edge's are natural, an iPhone only offers web pages its basic voices) or **Piper**, which sounds the same everywhere. Then the speaker button beside Send turns spoken replies on and off.
+
+Piper isn't bundled. If you already run [Piper](https://github.com/OHF-Voice/piper1-gpl), an admin enters its address once under Voice: Piper's HTTP server (`http://host:5000`) or Wyoming, such as Home Assistant's Piper add-on with its port published (`tcp://host:10200`). Nova relays text to it, and the browser's voice stands in for anything Piper can't read.
 
 ### Tasks and notes, beside the chat
 

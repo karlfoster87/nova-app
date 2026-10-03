@@ -1,6 +1,7 @@
 // Voice: speech from a Piper server for anyone signed in, and its address for admins (anything
 // under /api/settings is admin-only; index.js refuses other profiles first).
 import { config, saveConfig } from '../core/config.js';
+import { hub } from '../core/hub.js';
 import { readJson, send } from '../http/respond.js';
 import { synthesize, checkPiperUrl, checkPiperVoice } from '../voice/piper.js';
 
@@ -18,6 +19,7 @@ export default function voiceRoutes(api) {
     const url = checkPiperUrl(body.piperUrl), voice = checkPiperVoice(body.piperVoice);
     if (url) await synthesize('Testing.', { url, voice });
     saveConfig('voice', { piperUrl: url, piperVoice: voice });
+    hub.toAll({ t: 'profile_changed' }); // every open tab refetches /api/me, so it knows whether Piper is there
     console.log(url ? `Piper voice set to ${url}${voice ? ` (${voice})` : ''} by ${profile}.` : `Piper voice turned off by ${profile}.`);
     return { piperUrl: url, piperVoice: voice };
   });

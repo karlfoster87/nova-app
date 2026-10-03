@@ -241,23 +241,30 @@
         <p class="muted">Saved in this browser only. They show while Nova is open but not in front.</p>
         <p class="form-status" role="status"></p>
       </form>
-      <form id="voiceForm" class="stack" hidden>
+      <form id="voiceForm" class="stack">
         <h3>Voice</h3>
-        <label>Voice for spoken replies <select name="voice"></select></label>
-        <label>Speed <select name="rate">
-          <option value="0.8">Slower</option><option value="0.9">A little slower</option><option value="1">Normal</option>
-          <option value="1.15">A little faster</option><option value="1.3">Faster</option><option value="1.5">Fastest</option>
+        <label>Spoken replies <select name="engine">
+          <option value="none">None</option><option value="browser">This browser's voices</option><option value="piper">Piper</option>
         </select></label>
-        <div class="row"><button type="button" class="text-btn" id="testVoice">Test voice</button></div>
+        <div class="stack" id="browserVoice" hidden>
+          <label>Voice <select name="voice"></select></label>
+        </div>
+        <div class="stack" id="piperVoice" hidden>
+          <p class="muted" id="piperState"></p>
+          <div class="stack" id="piperAdmin" hidden>
+            <label>Piper address <input name="piperUrl" type="text" autocomplete="off" spellcheck="false" placeholder="tcp://192.168.1.20:10200"></label>
+            <label>Piper voice <span class="muted">(optional)</span> <input name="piperVoice" type="text" autocomplete="off" spellcheck="false" placeholder="The server's default, or e.g. en_GB-alba-medium"></label>
+            <div class="row"><button type="button" class="send-btn" id="savePiper">Test and save</button></div>
+          </div>
+        </div>
+        <div class="stack" id="voicePlayback" hidden>
+          <label>Speed <select name="rate">
+            <option value="0.8">Slower</option><option value="0.9">A little slower</option><option value="1">Normal</option>
+            <option value="1.15">A little faster</option><option value="1.3">Faster</option><option value="1.5">Fastest</option>
+          </select></label>
+          <div class="row"><button type="button" class="text-btn" id="testVoice">Test voice</button></div>
+        </div>
         <p class="muted" id="voiceHelp"></p>
-        <p class="form-status" role="status"></p>
-      </form>
-      <form id="piperForm" class="stack" data-admin hidden>
-        <h3>Piper voice server</h3>
-        <p class="muted">For everyone: if you run <a href="https://github.com/OHF-Voice/piper1-gpl" target="_blank" rel="noopener noreferrer">Piper</a> somewhere Nova can reach, spoken replies can use it, so they sound the same on every device. Use <code>http://host:5000</code> for Piper's HTTP server, or <code>tcp://host:10200</code> for Wyoming (such as Home Assistant's Piper). Leave it empty to use each browser's own voices.</p>
-        <label>Address <input name="piperUrl" type="text" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.20:5000"></label>
-        <label>Voice <span class="muted">(optional)</span> <input name="piperVoice" type="text" autocomplete="off" spellcheck="false" placeholder="The server's default, or e.g. en_GB-alba-medium"></label>
-        <div class="row"><button type="submit" class="send-btn">Test and save</button></div>
         <p class="form-status" role="status"></p>
       </form>
       <form id="prefsForm" class="stack">

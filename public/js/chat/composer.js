@@ -7,7 +7,7 @@
 import { $ } from '../lib/dom.js';
 import { fileChip } from '../lib/widgets.js';
 import { store } from '../lib/store.js';
-import { canDictate, canSpeakAny, toggleDictation, stopDictation, stopSpeaking, unlockSpeech, onSpeaking, isSpeaking } from '../lib/speech.js';
+import { canDictate, canSpeakReplies, toggleDictation, stopDictation, stopSpeaking, unlockSpeech, onSpeaking, onVoiceChange, isSpeaking } from '../lib/speech.js';
 import { state, els } from '../state.js';
 import { send } from './socket.js';
 import { picks } from './pickers.js';
@@ -54,10 +54,11 @@ els.stop.addEventListener('click', () => { stopSpeaking(); send({ t: 'interrupt'
 
 // ---- Voice ----------------------------------------------------------------------
 // Spoken replies are a per-browser switch, so a phone in the car can talk while the desktop
-// stays quiet. While a reply is being read, the speaker button stops it instead of switching.
+// stays quiet. The speaker button only shows once Settings has a voice engine for this browser.
+// While a reply is being read, the button stops it instead of switching.
 
 const hint = $('hint'), HINT = hint.textContent;
-export const voiceOn = () => canSpeakAny() && store.get('voiceReplies', false) === true;
+export const voiceOn = () => canSpeakReplies() && store.get('voiceReplies', false) === true;
 
 // A message in the hint line; with ms, it goes back to the usual hint after that long.
 let hintTimer;
@@ -86,6 +87,7 @@ els.mic.addEventListener('click', () => {
 
 function syncSpeak() {
   const on = voiceOn(), talking = isSpeaking();
+  els.speak.hidden = !canSpeakReplies();
   els.speak.setAttribute('aria-pressed', String(on));
   els.speak.classList.toggle('speaking', talking);
   const label = talking ? 'Stop reading this reply' : on ? 'Spoken replies are on: Claude keeps replies short and reads them aloud. Click to turn off.' : 'Speak replies: Claude keeps replies short and reads them aloud';
@@ -101,6 +103,7 @@ els.speak.addEventListener('click', () => {
   showHint(on ? 'Spoken replies on: replies to your next messages are short and read aloud.' : 'Spoken replies off.', false, 4000);
 });
 onSpeaking(syncSpeak);
+onVoiceChange(syncSpeak);
 syncSpeak();
 
 // ---- Attachments ----------------------------------------------------------
