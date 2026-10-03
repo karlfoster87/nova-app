@@ -4,7 +4,7 @@
 import { $, h } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { store } from '../lib/store.js';
-import { canDictate, canSpeak, canSpeakAny, hasPiper, PIPER, voices, voiceRate, speak, stopSpeaking, appleVoices } from '../lib/speech.js';
+import { canDictate, canSpeak, canSpeakAny, hasPiper, PIPER, SYSTEM, voices, voiceRate, speak, stopSpeaking, appleVoices } from '../lib/speech.js';
 import { refreshMe } from '../shell/profile.js';
 import { run, isAdmin, setStatus } from './forms.js';
 
@@ -17,7 +17,7 @@ export function fillVoice(loadServer = true) {
   $('voiceHelp').textContent = [
     canSpeakAny() ? 'Saved in this browser only. Turn spoken replies on with the speaker button beside Send.' : 'This browser can\'t read replies aloud.',
     hasPiper() ? 'Automatic uses Nova\'s Piper voice, the same on every device.' : '',
-    appleVoices() && !hasPiper() ? 'On an iPhone, iPad or Mac, the best voices are the Premium ones: download one in Settings, Accessibility, Spoken Content, Voices, then reload Nova and pick it here.' : '',
+    appleVoices() && !hasPiper() ? 'Safari doesn\'t show web pages the Premium voices you download. To try one anyway, make it the default for your language in Settings, Accessibility, Spoken Content, Voices, then pick Device default voice here.' : '',
     canDictate ? 'Dictation uses the browser\'s own speech recognition: Edge and Chrome send the audio to Microsoft or Google to turn it into text.'
       : 'This browser can\'t take dictation here. Edge or Chrome can, over https or on this computer.'
   ].filter(Boolean).join(' ');
@@ -35,6 +35,7 @@ function fillVoiceList() {
   const auto = hasPiper() ? 'Piper' : list[0]?.name;
   form.voice.replaceChildren(h('option', { value: '' }, `Automatic${auto ? ` (${auto})` : ''}`),
     hasPiper() ? h('option', { value: PIPER, selected: picked === PIPER }, 'Piper (Nova\'s voice server)') : null,
+    canSpeak ? h('option', { value: SYSTEM, selected: picked === SYSTEM }, 'Device default voice') : null,
     ...list.map((v) => h('option', { value: v.name, selected: v.name === picked }, `${v.name} (${v.lang})`)));
   if (canSpeak && !list.length && retries++ < 10) setTimeout(() => { if ($('settings').open) fillVoiceList(); }, 400);
   else if (list.length) retries = 0;

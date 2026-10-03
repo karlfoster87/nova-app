@@ -107,6 +107,10 @@ function fitText(before, words) {
 // it's what Automatic means when it's there, and the browser's voice stands in if it fails.
 
 export const PIPER = 'piper'; // the stored voice name that picks Piper
+// Names no voice, only the language, so the device's own default voice for it reads. Safari
+// hides downloaded Premium and Enhanced voices from web pages, but iOS may still use one when
+// it's the default in Settings, Accessibility, Spoken Content.
+export const SYSTEM = 'system';
 let piper = false;
 export const setPiper = (on) => { piper = !!on; };
 export const hasPiper = () => piper;
@@ -146,7 +150,12 @@ export function voices() {
   const rank = (v) => tier(v) * 2 + (v.lang.toLowerCase().replace('_', '-') === l ? 0 : 1);
   return all.filter(mine).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)).concat(all.filter((v) => !mine(v)));
 }
-const pickVoice = () => { const list = voices(); return list.find((v) => v.name === store.get('voice.name', '')) || list[0] || null; };
+function pickVoice() {
+  const name = store.get('voice.name', '');
+  if (name === SYSTEM) return null;
+  const list = voices();
+  return list.find((v) => v.name === name) || list[0] || null;
+}
 export const voiceRate = () => Number(store.get('voice.rate', 1)) || 1;
 
 export function stopSpeaking() {
