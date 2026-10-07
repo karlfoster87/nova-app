@@ -63,7 +63,7 @@ class InputQueue {
 }
 
 class ChatRunner {
-  constructor({ id, profile, model, effort, mode, isNew }) {
+  constructor({ id, profile, model, effort, mode, isNew, resumeAt }) {
     Object.assign(this, { id, profile, model, effort, mode });
     this.state = 'idle';
     this.pending = new Map(); // reqId -> resolve(PermissionResult)
@@ -101,9 +101,11 @@ class ChatRunner {
     }
     if (mode) options.permissionMode = mode;
     if (isNew) options.sessionId = id; else options.resume = id;
+    // An edited message: carry on from the entry before it, leaving the rest off the chain.
+    if (resumeAt) options.resumeSessionAt = resumeAt;
 
     this.query = query({ prompt: this.input, options });
-    this.loop();
+    this.done = this.loop();
   }
 
   emit(payload) { hub.toProfile(this.profile, { chatId: this.id, ...payload }); }
@@ -137,12 +139,14 @@ class ChatRunner {
     } catch (err) {
       this.emit({ t: 'error', message: `This chat's process stopped: ${err.message}` });
     } finally {
-      this.setState('closed');
+      // A runner already replaced (new model, an edit) stays quiet, or tabs would see the
+      // chat as closed while its new process works.
+      const current = registry.get(this.id) === this;
+      if (current) { registry.delete(this.id); this.setState('closed'); } else this.state = 'closed';
       for (const resolve of this.pending.values()) resolve({ behavior: 'deny', message: 'Session closed.' });
       this.pending.clear();
       this.pendingInfo.clear();
       this.tasks.clear();
-      if (registry.get(this.id) === this) registry.delete(this.id);
     }
   }
 
@@ -180,7 +184,8 @@ class ChatRunner {
   }
 
   // content: the text, or content blocks when files are attached (uploads.messageContent).
-  send(content) {
+  // uuid: the message's id in the transcript, so it can be edited later.
+  send(content, uuid) {
     this.lastActive = Date.now();
     this.setState('running');
     q.touchChat.run(Date.now(), this.model, this.effort, this.id);
@@ -188,7 +193,8 @@ class ChatRunner {
       type: 'user',
       message: { role: 'user', content },
       parent_tool_use_id: null,
-      session_id: this.id
+      session_id: this.id,
+      uuid
     });
   }
 
@@ -289,8 +295,9 @@ const registry = new Map(); // chatId -> ChatRunner
 
 // The chat's runner, started (or resumed) if it has none. row: the chat, already checked to
 // belong to its profile (chats.js ownedChat). A changed model or effort restarts an idle
-// process on the same session.
-export function runnerFor(row, { model, effort, mode }) {
+// process on the same session. rewind (an edited message, after stopRunner): { at } starts the
+// session again from that transcript entry, or afresh when at is null (the first message).
+export function runnerFor(row, { model, effort, mode }, rewind = null) {
   let runner = registry.get(row.id);
   if (runner && (runner.model !== model || runner.effort !== effort) && runner.state !== 'running') {
     runner.close();
@@ -298,11 +305,22 @@ export function runnerFor(row, { model, effort, mode }) {
     runner = null;
   }
   if (!runner) {
-    const hasHistory = row.title !== null;
-    runner = new ChatRunner({ id: row.id, profile: row.profile, model, effort, mode: mode || row.permission_mode || undefined, isNew: !hasHistory });
+    const isNew = rewind ? !rewind.at : row.title === null;
+    runner = new ChatRunner({ id: row.id, profile: row.profile, model, effort, mode: mode || row.permission_mode || undefined,
+      isNew, resumeAt: rewind?.at || undefined });
     registry.set(row.id, runner);
   }
   return runner;
+}
+
+// Stops a chat's process and waits (up to 10 s) for it to exit, so nothing it writes on the
+// way out lands in the session after an edit has rewound it.
+export async function stopRunner(profile, id) {
+  const runner = existingRunner(profile, id);
+  if (!runner) return;
+  registry.delete(id);
+  runner.close();
+  await Promise.race([runner.done, new Promise((r) => setTimeout(r, 10_000).unref())]);
 }
 
 export function existingRunner(profile, id) {

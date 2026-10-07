@@ -4,14 +4,14 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
+import { getSessionMessages, deleteSession } from '@anthropic-ai/claude-agent-sdk';
 import { config, CLAUDE_DIR, OLD_CLAUDE_DIR } from '../core/config.js';
 import { q } from '../core/db.js';
 import { hub } from '../core/hub.js';
 import { UserError } from '../core/errors.js';
 import { isAdmin } from '../accounts/profiles.js';
 import { signedIn } from '../claude/meta.js';
-import { runnerFor, existingRunner, stateOf } from './runner.js';
+import { runnerFor, existingRunner, stopRunner, stateOf } from './runner.js';
 import { categoryIdFor } from './categories.js';
 import { claimUploads, messageContent } from './uploads.js';
 
@@ -60,9 +60,6 @@ export function deleteChat(profile, id) {
   hub.toProfile(profile, { t: 'chats_changed', deleted: id });
 }
 
-// Sends a message (text, attached uploads, or both) to a chat, starting or resuming its
-// process. The first message also names the chat. Every tab of the profile gets an echo;
-// clientId lets the sending tab recognise its own.
 // Added to each message sent with spoken replies on, so that reply is short and reads well
 // aloud. It's per message rather than in the system prompt, which is fixed when the Claude
 // process starts: switching voice on or off then takes effect on the next message, with no
@@ -77,28 +74,85 @@ The user is listening rather than reading: your reply to this message will be re
 This applies to this message only. Messages without this note get your usual written replies.
 </voice-reply>`;
 
+function requireSignedIn(profile) {
+  if (signedIn() !== false) return;
+  throw new UserError(isAdmin(profile)
+    ? 'Nova isn\'t signed in to Claude. Sign in from Settings, Claude, then send again.'
+    : 'Nova isn\'t signed in to Claude. Ask an admin to sign in from Settings, then send again.');
+}
+
+// Sends a message (text, attached uploads, or both) to a chat, starting or resuming its
+// process. The first message also names the chat. Every tab of the profile gets an echo;
+// clientId lets the sending tab recognise its own.
+
+// Hands a message to the chat's process and echoes it to every tab, with the uuid it gets in
+// the transcript so any tab can offer to edit it. A slash command must stay the whole message
+// for Claude Code to run it, so it never gets the voice note.
+async function deliver(profile, row, runner, content, { text, files, voice, mode, clientId }) {
+  if (mode && runner.mode !== mode) await runner.setMode(mode);
+  else if (mode && row.permission_mode !== mode) q.setChatMode.run(mode, row.id, profile);
+  if (voice && !text.startsWith('/')) content = [...(typeof content === 'string' ? [{ type: 'text', text: content }] : content), { type: 'text', text: VOICE_NOTE }];
+  const uuid = crypto.randomUUID();
+  runner.send(content, uuid);
+  hub.toProfile(profile, { t: 'user_echo', chatId: row.id, uuid, text, attachments: files.map(({ id, name, size, type }) => ({ id, name, size, type })), from: clientId });
+}
+
 export async function sendMessage(profile, row, { text, attachments, voice, model, effort, mode, clientId }) {
   const files = claimUploads(profile, attachments);
   if (!text && !files.length) return;
-  if (signedIn() === false) {
-    throw new UserError(isAdmin(profile)
-      ? 'Nova isn\'t signed in to Claude. Sign in from Settings, Claude, then send again.'
-      : 'Nova isn\'t signed in to Claude. Ask an admin to sign in from Settings, then send again.');
-  }
+  requireSignedIn(profile);
   const runner = runnerFor(row, { model, effort, mode });
   if (runner.state === 'running') throw new UserError('Nova is still responding. Stop it or wait before sending.');
-  if (mode && runner.mode !== mode) await runner.setMode(mode);
-  else if (mode && row.permission_mode !== mode) q.setChatMode.run(mode, row.id, profile);
-  let content = messageContent(profile, row.id, text, files);
-  // A slash command must stay the whole message for Claude Code to run it.
-  if (voice && !text.startsWith('/')) content = [...(typeof content === 'string' ? [{ type: 'text', text: content }] : content), { type: 'text', text: VOICE_NOTE }];
-  runner.send(content);
+  const content = messageContent(profile, row.id, text, files);
+  await deliver(profile, row, runner, content, { text, files, voice, mode, clientId });
   if (!row.title) {
     const title = text || `Files: ${files.map((f) => f.name).join(', ')}`;
     q.renameChat.run(title.replace(/\s+/g, ' ').slice(0, 80), row.id, profile);
     hub.toProfile(profile, { t: 'chats_changed' });
   }
-  hub.toProfile(profile, { t: 'user_echo', chatId: row.id, text, attachments: files.map(({ id, name, size, type }) => ({ id, name, size, type })), from: clientId });
+}
+
+// The session's transcript entries, straight from Claude Code's JSONL file: an edit needs each
+// entry's parentUuid, which getSessionMessages leaves out. Lines that don't parse are skipped.
+function sessionEntries(id) {
+  const projects = path.join(CLAUDE_DIR, 'projects');
+  let folders;
+  try { folders = fs.readdirSync(projects); } catch { return []; }
+  for (const folder of folders) {
+    let text;
+    try { text = fs.readFileSync(path.join(projects, folder, `${id}.jsonl`), 'utf8'); } catch { continue; }
+    return text.split('\n').flatMap((line) => { try { return line ? [JSON.parse(line)] : []; } catch { return []; } });
+  }
+  return [];
+}
+
+// Edits a message sent earlier and sends it again. The session carries on from the entry just
+// before it (the SDK's resumeSessionAt), so the edit and the new reply become the chat's only
+// branch: the old message and everything after it leave the history. They stay in the
+// transcript file, off the chain, and changes Nova made to files meanwhile aren't undone.
+// Attachments on the message go again; only its typed text changes.
+export async function editMessage(profile, row, { uuid, text, voice, model, effort, mode, clientId }) {
+  requireSignedIn(profile);
+  if (existingRunner(profile, row.id)?.busy) throw new UserError('Nova is still working in this chat. Stop it or let it finish, then edit.', 409);
+  const entry = sessionEntries(row.id).find((e) => e.uuid === uuid && e.type === 'user' && !e.isSidechain);
+  const original = entry?.message?.content;
+  if (!entry || (Array.isArray(original) && original.some((b) => b.type === 'tool_result'))) {
+    throw new UserError('That message can\'t be edited. Reload the chat and try again.', 404);
+  }
+  const kept = Array.isArray(original) ? original.filter((b) => b.type === 'image' || (b.type === 'text' && b.text.startsWith('<attachments>'))) : [];
+  if (!text && !kept.length) throw new UserError('Type the new message before sending it.');
+  // The files the manifest names, for the echo's capsules.
+  const files = kept.flatMap((b) => (b.type === 'text' ? [...b.text.matchAll(/\[([0-9a-f-]{36})\]: /g)] : []))
+    .map(([, id]) => q.upload.get(id)).filter((r) => r?.profile === profile);
+  const content = kept.length ? [...(text ? [{ type: 'text', text }] : []), ...kept] : text;
+
+  await stopRunner(profile, row.id);
+  const at = entry.parentUuid || null;
+  // The first message: begin the session again. The old file goes, or the id would clash.
+  if (!at) await deleteSession(row.id, { dir: config.paths.brainDir }).catch(() => {});
+  const runner = runnerFor(row, { model, effort, mode }, { at });
+  hub.toProfile(profile, { t: 'rewound', chatId: row.id, uuid });
+  await deliver(profile, row, runner, content, { text, files, voice, mode, clientId });
 }
 
 // Sets a chat's permission mode: straight away in an open process, otherwise when it next starts.

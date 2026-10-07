@@ -11,7 +11,7 @@ import { connect, send } from './socket.js';
 import { logEvent } from './activity.js';
 import { picks, setPicks, renderPickers, setMode } from './pickers.js';
 import { syncComposer, voiceOn } from './composer.js';
-import { speak } from '../lib/speech.js';
+import { speak, stopSpeaking, unlockSpeech } from '../lib/speech.js';
 import { initSidebar } from './sidebar.js';
 import { initPwa } from '../shell/pwa.js';
 import { renderUsage } from '../shell/header.js';
@@ -49,6 +49,7 @@ function transcriptFor(chatId) {
   if (!t) {
     t = new Transcript(chatId, {
       onAnswer: (reqId, result) => send({ t: 'answer', chatId, reqId, result }),
+      onEdit: (uuid, text) => editMessage(chatId, uuid, text),
       onChange: () => { if (chatId === state.current) { stickToBottom(); updatePresence(); } }
     });
     state.transcripts.set(chatId, t);
@@ -77,6 +78,7 @@ function onServer(m) {
     case 'history': {
       const t = transcriptFor(m.chatId);
       t.loadHistory(m.messages);
+      t.setBusy(m.state === 'running');
       state.chatState.set(m.chatId, m.state);
       if (m.chatId === state.current) { mountTranscript(t); stickToBottom(true); syncComposer(); }
       return;
@@ -108,9 +110,11 @@ function onServer(m) {
   if (m.chatId && m.chatId !== state.current && m.t === 'sdk' && m.msg.type === 'result') state.unread.add(m.chatId);
   switch (m.t) {
     case 'sdk': t?.handleSdk(m.msg); speakReply(m); break;
-    case 'user_echo': t?.addUser(m.text, m.attachments || []); break;
+    case 'user_echo': t?.addUser(m.text, m.attachments || [], Date.now(), m.uuid); break;
+    case 'rewound': t?.rewind(m.uuid); break;
     case 'state':
       state.chatState.set(m.chatId, m.state);
+      t?.setBusy(m.state === 'running');
       if (m.state === 'idle' || m.state === 'closed') t?.setActivity('idle');
       if (m.state === 'closed') t?.endTasks();
       break;
@@ -132,6 +136,16 @@ function speakReply(m) {
   if (m.msg.type !== 'assistant' || m.msg.parent_tool_use_id || !state.speakFor.has(m.chatId) || !voiceOn()) return;
   const text = (m.msg.message?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n\n').trim();
   if (text) speak(text);
+}
+
+// Sends an edited message again (transcript.js editUser). The server rewinds the chat to just
+// before it and every tab drops that turn onwards (rewound) before the new version echoes.
+function editMessage(chatId, uuid, text) {
+  stopSpeaking();
+  const voice = voiceOn();
+  if (voice) unlockSpeech();
+  state.speakFor[voice ? 'add' : 'delete'](chatId);
+  send({ t: 'edit', chatId, uuid, text, voice, ...picks() });
 }
 
 // ---- Opening and starting chats -----------------------------------------------

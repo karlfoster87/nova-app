@@ -33,6 +33,7 @@ const turnIcon = (kind) => svgIcon(TURN_ICONS[kind], { class: 'turn-icon' });
 // (a LAN address) the async clipboard API is missing, so it falls back to a hidden textarea.
 const COPY_ICON = ['M9 9h11v11H9Z', 'M15 5V4H4v11h1'];
 const COPIED_ICON = ['M5 12.5 10 17.5 19 7'];
+const EDIT_ICON = ['M4 20h4L19 9l-4-4L4 16Z', 'M13.5 6.5l4 4'];
 async function copyText(text) {
   if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
   const area = h('textarea', { readonly: true, class: 'copy-buffer' });
@@ -90,10 +91,11 @@ function resultText(content) {
 }
 
 export class Transcript {
-  constructor(chatId, { onAnswer, onChange, where }) {
+  constructor(chatId, { onAnswer, onEdit, onChange, where }) {
     this.chatId = chatId;
     this.where = where; // category name shown on an empty new chat
     this.onAnswer = onAnswer;
+    this.onEdit = onEdit; // (uuid, text): send an edited message again
     this.onChange = onChange || (() => {});
     this.el = h('div', { class: 'transcript-inner' });
     this.tools = new Map();   // tool_use_id -> { el, status, body, sub, name, input, done, task }
@@ -132,10 +134,10 @@ export class Transcript {
   startTurn(kind, at) {
     const body = h('div', { class: 'turn-body' });
     const time = at ? h('time', { class: 'turn-time', datetime: new Date(at).toISOString() }, hhmm(at)) : null;
-    const el = h('article', { class: `turn turn-${kind}` }, turnIcon(kind),
-      h('div', { class: 'turn-head' }, h('span', { class: 'turn-name' }, kind === 'user' ? 'You' : 'Nova'), time), body);
+    const head = h('div', { class: 'turn-head' }, h('span', { class: 'turn-name' }, kind === 'user' ? 'You' : 'Nova'), time);
+    const el = h('article', { class: `turn turn-${kind}` }, turnIcon(kind), head, body);
     this.append(el);
-    return { el, body };
+    return { el, head, body };
   }
 
   assistantBody(at = Date.now()) {
@@ -149,13 +151,75 @@ export class Transcript {
   }
 
   // ---- User side -------------------------------------------------------
-  addUser(text, files = [], at = Date.now()) {
+  // uuid: the message's id in the session, which makes it editable. Slash commands aren't:
+  // Claude Code records them as something other than the message sent.
+  addUser(text, files = [], at = Date.now(), uuid = null) {
     this.turn = null;
-    const { body } = this.startTurn('user', at);
-    body.append(h('div', { class: 'msg-user' }, text || null,
-      files.length ? h('ul', { class: 'file-chips' }, files.map((f) => fileChip(f, { href: `/api/uploads/${f.id}` }))) : null));
+    const { el, head, body } = this.startTurn('user', at);
+    const chips = files.length ? h('ul', { class: 'file-chips' }, files.map((f) => fileChip(f, { href: `/api/uploads/${f.id}` }))) : null;
+    const msg = h('div', { class: 'msg-user' }, text || null, chips);
+    body.append(msg);
+    if (uuid && this.onEdit && !text.startsWith('/')) {
+      el.dataset.uuid = uuid;
+      head.append(h('button', { type: 'button', class: 'icon-btn turn-edit', title: 'Edit message', 'aria-label': 'Edit message',
+        onclick: () => this.editUser(el, msg, text, chips) }, svgIcon(EDIT_ICON)));
+    }
     this.onChange();
   }
+
+  // Swaps a message for a box to rewrite it in. Sending replaces the message and everything
+  // after it (chats.js onEdit, then the server's rewound); Esc or Cancel puts it back.
+  editUser(el, msg, text, chips) {
+    if (el.classList.contains('editing')) return;
+    el.classList.add('editing');
+    const input = h('textarea', { class: 'edit-input', rows: 1, 'aria-label': 'Edit message' });
+    input.value = text;
+    const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 320)}px`; };
+    const later = el.nextElementSibling !== null;
+    const done = () => { form.replaceWith(msg); el.classList.remove('editing'); this.onChange(); };
+    const submit = () => {
+      const value = input.value.trim();
+      if (!value && !chips) return input.focus();
+      if (value === text) return done();
+      this.onEdit(el.dataset.uuid, value);
+    };
+    const form = h('form', { class: 'edit-form', onsubmit: (e) => { e.preventDefault(); submit(); } },
+      input, chips ? chips.cloneNode(true) : null,
+      h('div', { class: 'edit-foot' },
+        h('span', { class: 'edit-hint' }, later
+          ? 'Sending replaces this message and everything after it. Changes Nova made to files stay.'
+          : 'Enter to send, Shift+Enter for a new line, Esc to cancel.'),
+        h('div', { class: 'edit-actions' }, h('button', { type: 'button', class: 'text-btn', onclick: done }, 'Cancel'),
+          h('button', { type: 'submit', class: 'send-btn' }, 'Send'))));
+    input.addEventListener('input', grow);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); done(); }
+      else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+    });
+    msg.replaceWith(form);
+    grow();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    this.onChange();
+  }
+
+  // An edited message was sent again: it and everything after it leave the transcript, and
+  // the new version arrives as an ordinary user_echo.
+  rewind(uuid) {
+    const from = [...this.el.querySelectorAll('.turn-user')].find((t) => t.dataset.uuid === uuid);
+    if (!from) return;
+    while (from.nextSibling) from.nextSibling.remove();
+    from.remove();
+    for (const [id, t] of this.tools) if (!t.el.isConnected) this.tools.delete(id);
+    for (const [id, card] of this.asks) if (!card.isConnected) this.asks.delete(id);
+    this.turn = null;
+    this.live = null;
+    if (!this.el.children.length) { this.empty = true; this.showEmpty(); }
+    this.onChange();
+  }
+
+  // While Nova works, messages can't be edited (the server refuses too).
+  setBusy(on) { this.el.classList.toggle('busy', on); }
 
   addNotice(text, isError = false) {
     this.appendInTurn(h('div', { class: `notice${isError ? ' error' : ''}` }, text));
@@ -396,7 +460,7 @@ export class Transcript {
       const content = m.message?.content;
       if (m.type === 'assistant') this.handleAssistant(m, m.parent_tool_use_id);
       else if (m.type === 'user' && !m.parent_tool_use_id) {
-        if (typeof content === 'string') this.addUser(content, [], whenOf(m));
+        if (typeof content === 'string') this.addUser(content, [], whenOf(m), m.uuid);
         else if (Array.isArray(content)) {
           // The spoken-replies note (server/chat/chats.js VOICE_NOTE) is for Claude, not the reader.
           const texts = content.filter((c) => c.type === 'text' && !c.text.startsWith('<voice-reply>')).map((c) => c.text);
@@ -404,7 +468,7 @@ export class Transcript {
           const files = manifest ? parseManifest(manifest) : [];
           let text = texts.filter((t) => t !== manifest).join('\n').trim();
           if (text.startsWith('<')) text = ''; // text Claude Code added itself, not typed by the user
-          if (text || files.length) this.addUser(text, files, whenOf(m));
+          if (text || files.length) this.addUser(text, files, whenOf(m), m.uuid);
           this.attachResults(content);
         }
       } else if (m.type === 'user' && Array.isArray(content)) this.attachResults(content);

@@ -9,7 +9,7 @@ import { sameOrigin } from './http/respond.js';
 import { profileFrom } from './accounts/auth.js';
 import { publicMeta } from './claude/meta.js';
 import { existingRunner, PERMISSION_MODES, EFFORTS } from './chat/runner.js';
-import { ownedChat, createChat, sendMessage, changeMode, openChat } from './chat/chats.js';
+import { ownedChat, createChat, sendMessage, editMessage, changeMode, openChat } from './chat/chats.js';
 
 export function attachSockets(server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
@@ -48,11 +48,14 @@ async function handle(profile, ws, raw) {
       for (const p of chat.replay) reply(p);
       return;
     }
-    case 'send': {
+    case 'send':
+    case 'edit': {
       const row = ownedChat(profile, m.chatId);
       if (!row) return reply({ t: 'error', message: 'Chat not found.' });
+      const text = String(m.text || '').trim();
       try {
-        await sendMessage(profile, row, { text: String(m.text || '').trim(), attachments: m.attachments, voice: m.voice === true, model, effort, mode, clientId: m.clientId });
+        if (m.t === 'send') await sendMessage(profile, row, { text, attachments: m.attachments, voice: m.voice === true, model, effort, mode, clientId: m.clientId });
+        else await editMessage(profile, row, { uuid: String(m.uuid || ''), text, voice: m.voice === true, model, effort, mode, clientId: m.clientId });
       } catch (err) {
         if (!(err instanceof UserError)) throw err;
         refuse(err.message);

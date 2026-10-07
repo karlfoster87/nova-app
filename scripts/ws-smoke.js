@@ -213,6 +213,9 @@ async function run() {
   wsA.send(JSON.stringify({ t: 'open', chatId: id }));
   const hist = await next(wsA, (m) => m.t === 'history' && m.chatId === id).catch(() => null);
   check(Array.isArray(hist?.messages), 'owner can open the chat');
+  wsA.send(JSON.stringify({ t: 'edit', chatId: id, uuid: crypto.randomUUID(), text: 'smoke test, should never be sent' }));
+  const badEdit = await next(wsA, (m) => m.t === 'error' && m.chatId === id).catch(() => null);
+  check(!!badEdit && !wsA.received.some((m) => m.t === 'rewound' || m.t === 'user_echo'), 'editing a message that isn\'t in the chat is refused and rewinds nothing');
 
   // Categories reorder per profile
   const cats = [];
@@ -235,7 +238,7 @@ async function run() {
   check(!(await http('GET', '/api/chats', { cookie: b })).data?.some((c) => c.id === id), 'other profile doesn\'t see the chat');
   check((await http('PATCH', `/api/chats/${id}`, { cookie: b, body: { categoryId: null } })).status === 404, 'other profile can\'t change the chat');
   check((await http('DELETE', `/api/chats/${id}`, { cookie: b })).status === 404, 'other profile can\'t delete the chat');
-  for (const [t, extra] of [['open', {}], ['send', { text: 'smoke test, should never be sent' }], ['mode', { mode: 'plan' }]]) {
+  for (const [t, extra] of [['open', {}], ['send', { text: 'smoke test, should never be sent' }], ['edit', { uuid: crypto.randomUUID(), text: 'smoke test, should never be sent' }], ['mode', { mode: 'plan' }]]) {
     wsB.send(JSON.stringify({ t, chatId: id, ...extra }));
     const r = await next(wsB, (m) => m.t === 'error').catch(() => null);
     check(r?.message === 'Chat not found.', `other profile's WebSocket "${t}" is refused`);

@@ -19,6 +19,22 @@
 .turn-body { grid-column: 2; min-width: 0; }
 .turn-user + .turn-assistant, .turn-assistant + .turn-user { padding-top: 20px; border-top: 1px solid var(--line); }
 .msg-user { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); line-height: 1.75; }
+/* Editing a sent message (transcript.js editUser): the pencil shows on hover, always on touch,
+   never while Nova works. The box replaces the message until it's sent or cancelled. */
+.turn-edit { align-self: center; margin-left: auto; padding: 3px; opacity: 0; transition: opacity 0.15s; }
+.turn-edit svg { width: 15px; height: 15px; }
+.turn-user:hover .turn-edit, .turn-edit:focus-visible { opacity: 1; }
+@media (hover: none) { .turn-edit { opacity: 1; } }
+.busy .turn-edit, .turn.editing .turn-edit { display: none; }
+.edit-form { display: grid; gap: 8px; }
+.edit-input {
+  width: 100%; resize: none; min-height: 44px; padding: 8px 10px; line-height: 1.75;
+  background: var(--shade); border: 1px solid var(--accent); border-radius: 2px; color: var(--ink);
+}
+.edit-form .file-chips { margin: 0; }
+.edit-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.edit-hint { flex: 1 1 200px; font-size: 11.5px; color: var(--muted); }
+.edit-actions { display: flex; gap: 8px; margin-left: auto; }
 /* Long unbroken strings (URLs, paths, hashes) wrap instead of pushing past their box.
    break-word leaves table column sizing alone, so wide tables still scroll sideways. */
 .prose, .notice, .turn-meta, .ask, .question, .option, details.block .body { overflow-wrap: break-word; }
