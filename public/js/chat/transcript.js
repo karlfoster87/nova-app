@@ -27,6 +27,44 @@ const TURN_ICONS = {
   assistant: ['M12 2.5 20.2 7.2v9.6L12 21.5l-8.2-4.7V7.2Z', 'M12 7v10M7.7 9.5l8.6 5M7.7 14.5l8.6-5']
 };
 const turnIcon = (kind) => svgIcon(TURN_ICONS[kind], { class: 'turn-icon' });
+
+// Reply text as markdown, with a copy button on each code block. The button sits in a wrapper
+// rather than the <pre>, so it stays put when a long line scrolls sideways. Over plain http
+// (a LAN address) the async clipboard API is missing, so it falls back to a hidden textarea.
+const COPY_ICON = ['M9 9h11v11H9Z', 'M15 5V4H4v11h1'];
+const COPIED_ICON = ['M5 12.5 10 17.5 19 7'];
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const area = h('textarea', { readonly: true, class: 'copy-buffer' });
+  area.value = text;
+  document.body.append(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  area.remove();
+  if (!ok) throw new Error('copy failed');
+}
+function copyButton(pre) {
+  const btn = h('button', { type: 'button', class: 'icon-btn code-copy', title: 'Copy code', 'aria-label': 'Copy code' }, svgIcon(COPY_ICON));
+  const reset = () => { btn.replaceChildren(svgIcon(COPY_ICON)); btn.title = 'Copy code'; btn.classList.remove('copied'); };
+  btn.addEventListener('click', async () => {
+    let ok = true;
+    try { await copyText(pre.textContent.replace(/\n$/, '')); } catch { ok = false; }
+    btn.replaceChildren(svgIcon(ok ? COPIED_ICON : COPY_ICON));
+    btn.title = ok ? 'Copied' : 'Couldn\'t copy. Select the code and copy it instead.';
+    btn.classList.toggle('copied', ok);
+    clearTimeout(btn.timer);
+    btn.timer = setTimeout(reset, 1500);
+  });
+  return btn;
+}
+function setProse(el, text) {
+  el.innerHTML = renderMarkdown(text);
+  for (const pre of el.querySelectorAll('pre')) {
+    const wrap = h('div', { class: 'code-block' });
+    pre.replaceWith(wrap);
+    wrap.append(pre, copyButton(pre));
+  }
+}
 // A message's time: saved transcripts may carry an ISO timestamp; live ones are now.
 const whenOf = (m) => { const t = Date.parse(m?.timestamp || ''); return Number.isNaN(t) ? null : t; };
 const hhmm = (at) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -147,7 +185,7 @@ export class Transcript {
   renderContent(content, container) {
     for (const block of content || []) {
       if (block.type === 'text' && block.text?.trim()) {
-        const div = h('div', { class: 'prose' }); div.innerHTML = renderMarkdown(block.text); container.append(div);
+        const div = h('div', { class: 'prose' }); setProse(div, block.text); container.append(div);
       } else if (block.type === 'thinking' && block.thinking) {
         container.append(this.makeThinking(block.thinking).el);
       } else if (block.type === 'redacted_thinking') {
@@ -217,7 +255,7 @@ export class Transcript {
   scheduleMarkdown(b) {
     if (b.pending) return;
     b.pending = true;
-    requestAnimationFrame(() => { b.pending = false; b.el.innerHTML = renderMarkdown(b.buf); this.onChange(); });
+    requestAnimationFrame(() => { b.pending = false; setProse(b.el, b.buf); this.onChange(); });
   }
 
   // Final assistant message replaces whatever was streamed for it.
