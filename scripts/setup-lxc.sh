@@ -4,7 +4,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/karlfoster87/nova-app/main/scripts/setup-lxc.sh | bash -s -- --brain /mnt/brain
 #
-# It installs Node 24 (NodeSource) unless Node 22.13+ is already there, plus rsync and git (for
+# It installs Node 24 (NodeSource) unless Node 22.15+ is already there, plus rsync and git (for
 # the brain viewer's commits); creates the system user "nova" (no sudo, no login shell); puts
 # the app in /opt/nova and records which commit it is, so Nova can update itself from GitHub
 # afterwards (Settings, Updates); installs packages as nova; writes /opt/nova/data/config.json
@@ -73,7 +73,7 @@ command -v systemctl >/dev/null || fail 'This script expects systemd.'
 [ -z "$BRAIN" ] || [ -d "$BRAIN" ] || fail "$BRAIN doesn't exist. Bind-mount the brain into the container first (README, Proxmox step 2), then run this again."
 
 step 'Node.js'
-node_ok() { command -v node >/dev/null && node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 13) ? 0 : 1)'; }
+node_ok() { command -v node >/dev/null && node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 15) ? 0 : 1)'; }
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl gnupg git rsync >/dev/null
@@ -85,7 +85,7 @@ else
   echo 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main' > /etc/apt/sources.list.d/nodesource.list
   apt-get update -qq
   apt-get install -y -qq nodejs >/dev/null
-  node_ok || fail "Node 22.13 or later still isn't available (found $(node -v 2>/dev/null || echo none))."
+  node_ok || fail "Node 22.15 or later still isn't available (found $(node -v 2>/dev/null || echo none))."
   echo "Installed Node $(node -v)."
 fi
 NODE=$(command -v node)

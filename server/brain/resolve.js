@@ -56,7 +56,7 @@ function matches(rel, rules) {
 
 // Where the profiles folder sits inside the brain, if it does ('' would be the root itself).
 let profilesRel;
-function profilesPrefix() {
+export function profilesPrefix() {
   if (profilesRel === undefined) {
     try {
       const real = fs.realpathSync.native(config.paths.profilesDir);

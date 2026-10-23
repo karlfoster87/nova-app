@@ -1,6 +1,6 @@
 // The search palette: Ctrl+K (Cmd+K on a Mac), or the search button in the header bar on any
 // screen. One box finds chats by title, brain files by name and by their text, tasks, sticky
-// notes and skills, grouped, and opens the one picked in its own view. Chats and skills are
+// notes, apps and skills, grouped, and opens the one picked in its own view. Chats and skills are
 // searched here, from what the page already has; the rest comes from /api/search, which only
 // answers for views this profile can read (server routes/search.js).
 import { $, h, svgIcon } from '../lib/dom.js';
@@ -16,6 +16,7 @@ const ICONS = {
   task: 'M4 4h16v16H4ZM8 12l3 3 5-6',
   note: 'M6 3h9l4 4v14H6ZM14 3v5h5M9 12h7M9 16h5',
   skill: 'M7 4 3 12l4 8M17 4l4 8-4 8M14 4l-4 16',
+  app: 'M4 4h7v7H4ZM13 4h7v7h-7ZM4 13h7v7H4ZM16.5 13v7M13 16.5h7',
   search: 'M16 16l4 4M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0'
 };
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -113,6 +114,11 @@ export function openSearch() {
         return { icon: 'note', title: firstLine(n.text) || 'Empty note', detail: n.shared ? (n.mine ? 'Shown to everyone' : `Shared by ${n.owner}`) : '',
           snippet: hit && firstLine(hit) !== firstLine(n.text) ? hit.replace(/^[\s>*\-+]+/, '') : '', color: n.color, run: () => goTo({ id: 'notes', arg: n.id }) };
       }) });
+    }
+    // An app opens running, as a nova:// link does.
+    if (s?.apps?.length) {
+      out.push({ label: 'Apps', items: s.apps.map((a) => ({ icon: 'app', title: a.slug, detail: a.title && a.title !== a.slug ? a.title : '', snippet: a.description,
+        run: () => goTo({ id: 'apps', arg: `${a.slug}/run` }) })) });
     }
     const sk = (skills || []).filter((c) => hasAll(`${c.name} ${c.description}`, words)).slice(0, 6);
     if (sk.length) {

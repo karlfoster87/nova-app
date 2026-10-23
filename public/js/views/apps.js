@@ -379,7 +379,8 @@ export function init(ctx) {
     if (!(await confirmDialog({ title: `Turn on ${app.slug}'s backend?`, confirm: 'Turn it on',
       message: 'backend.js will run on the server whenever the app calls its api/ address, including after anyone with edit access, or Nova, changes it. ' +
         'It runs in its own Node process that may read only the app\'s folder, write only to its data folder and can\'t start other programs, ' +
-        'with a time limit. It can reach the internet. Only turn it on for code you trust.' }))) return;
+        'with a time limit. It can also use the brain files you\'ve allowed the app, as far as the person using it may, and those changes are committed. ' +
+        'It can reach the internet. Only turn it on for code you trust.' }))) return;
     try { await api('PATCH', `/api/apps/${app.slug}`, { backend: true }); } catch (err) { list.notify(err.message); }
     load();
   }

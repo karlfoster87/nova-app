@@ -63,7 +63,9 @@ const appsNote = () => ' You can build web apps for the user in the Nova apps fo
   'From the app\'s page, fetch(\'brain/Inventory/items.yaml\') returns the file (its ETag header is the version), a folder ' +
   'comes back as JSON {entries: [{name, path, type, size}]}, fetch(\'brain/<path>\', {method: \'PUT\', body: text, headers: ' +
   '{\'If-Match\': etag}}) saves it (409 if it changed meanwhile, so reload and merge), and method DELETE moves a file to the ' +
-  'brain\'s trash. Keep the file\'s existing structure and comments when saving, since Nova and the user read it too. These ' +
+  'brain\'s trash. A backend.js gets the same paths as req.brain = {"Inventory/items.yaml": {path: <absolute path>, access}}, ' +
+  'for reading and writing with node:fs (only those paths; Nova commits what it changes after each request). ' +
+  'Keep the file\'s existing structure and comments when saving, since Nova and the user read it too. These ' +
   'paths only work after an admin allows them in the Apps view, so say so, and point at the exact paths. ' +
   'To give the user a link that opens an app in Nova, write a markdown link to nova://apps/<name>, like [Open Budget planner](nova://apps/budget-planner).';
 

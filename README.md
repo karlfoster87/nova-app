@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.7.0 · Node 22.13+ · five dependencies · no build step
+Version 0.7.3 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -51,11 +51,11 @@ Ask Nova for a small web app (a budget planner, a dashboard, a quiz) and it buil
 
 Apps run in a sandbox: they can't see Nova's sign-in or call Nova as you, and each can only reach its own files. An app can also have a backend: `backend.js`, a JavaScript module that Nova's own Node.js runs for each request the app sends to its `api/` address, so there's nothing extra to install. It only runs after an admin turns it on for that app. Each request gets a fresh, locked-down Node process (Node's permission model, on Windows and Linux alike): it can read only its own app's folder, write only to the app's `data` folder, can't start other programs, and has a clean environment, a memory cap and a time limit. It can still reach the internet, so only turn on backends you trust.
 
-An app can also work on files in the brain, such as a YAML file where Nova keeps a list of things, so the app becomes a friendly form for editing it while the file stays where Nova reads it. The app names the files and folders it needs in its `app.json` (`"brain": { "Inventory/items.yaml": "write", "Recipes/": "read" }`), and an admin allows them once from a notice in the Apps view; anything added later waits for the admin again. The app then reads and saves them through its own address (`brain/<path>`), always as the person using it: it can never do more than they could in the Brain view, saves check the file hasn't changed meanwhile, and changes are committed like any other brain edit. Who can see and change apps is set per profile, like the other views (users have no access until an admin gives it).
+An app can also work on files in the brain, such as a YAML file where Nova keeps a list of things, so the app becomes a friendly form for editing it while the file stays where Nova reads it. The app names the files and folders it needs in its `app.json` (`"brain": { "Inventory/items.yaml": "write", "Recipes/": "read" }`), and an admin allows them once from a notice in the Apps view; anything added later waits for the admin again. The app then reads and saves them through its own address (`brain/<path>`), always as the person using it: it can never do more than they could in the Brain view, saves check the file hasn't changed meanwhile, and changes are committed like any other brain edit. A backend gets the same files to read and write directly, within the same limits, and its changes are committed after each request. Who can see and change apps is set per profile, like the other views (users have no access until an admin gives it).
 
 ### Find anything
 
-Press **Ctrl+K** (**⌘K** on a Mac), or the search button in the header on a phone, and one box searches everything: chats by title, brain files by name and by the words inside them, tasks, sticky notes (shared ones too) and skills. Results are grouped and each opens where it lives: the chat, the file, the task on its day, the note on the board, or a new chat with the skill ready to run.
+Press **Ctrl+K** (**⌘K** on a Mac), or the search button in the header on a phone, and one box searches everything: chats by title, brain files by name and by the words inside them, tasks, sticky notes (shared ones too), apps and skills. Results are grouped and each opens where it lives: the chat, the file, the task on its day, the note on the board, the app running, or a new chat with the skill ready to run.
 
 ### Wherever you are
 

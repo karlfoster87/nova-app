@@ -55,9 +55,9 @@ if ($Stop -or $Uninstall) {
 
 # Checks before changing anything.
 $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
-if (-not $node) { throw 'Node.js isn''t on PATH. Install Node 22.13 or later (24 LTS recommended), then run this again.' }
+if (-not $node) { throw 'Node.js isn''t on PATH. Install Node 22.15 or later (24 LTS recommended), then run this again.' }
 $version = [version]((& $node -v).TrimStart('v'))
-if ($version -lt [version]'22.13.0') { throw "Nova needs Node 22.13 or later, and this is $version. Update Node, then run this again." }
+if ($version -lt [version]'22.15.0') { throw "Nova needs Node 22.15 or later, and this is $version. Update Node, then run this again." }
 if (-not (Test-Path (Join-Path $App 'node_modules\@anthropic-ai\claude-agent-sdk'))) {
   throw "Nova's packages aren't installed. Run npm install in $App, then run this again."
 }

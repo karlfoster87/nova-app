@@ -426,6 +426,41 @@ async function appBrainFiles(a, b, where, appRoot) {
   check(made.status === 201 && fs.existsSync(path.join(brainDir, 'stock', 'items', 'new.yaml')), 'the app creates a file in a folder it may change');
   check((await fetch(url('stock/items/new.yaml'), { method: 'DELETE', headers: { Origin: 'null' } })).status === 200 &&
     !fs.existsSync(path.join(brainDir, 'stock', 'items', 'new.yaml')), 'the app deletes a file there (to the brain\'s trash)');
+  // The backend (v0.7.3) gets the same paths through Node's permissions, as req.brain.
+  const backendSource = fs.readFileSync(path.join(appRoot, 'backend.js'), 'utf8');
+  fs.writeFileSync(path.join(appRoot, 'backend.js'), [
+    "import fs from 'node:fs';",
+    'export default async function (req) {',
+    "  const attempt = (fn) => { try { return fn(); } catch (e) { return e.code || e.message; } };",
+    "  const list = req.brain['stock/list.yaml'];",
+    "  if (req.path === 'keys') return Object.fromEntries(Object.entries(req.brain).map(([k, v]) => [k, v.access]));",
+    "  if (req.path === 'read') return attempt(() => fs.readFileSync(list.path, 'utf8'));",
+    "  if (req.path === 'write') return attempt(() => { fs.appendFileSync(list.path, '  - name: oats\\r\\n'); return 'written'; });",
+    "  if (req.path === 'outside') return attempt(() => fs.readFileSync(list.path.replace(/stock[\\\\/]list\\.yaml$/, 'bin/data.bin'), 'utf8'));",
+    "  return 'ok';",
+    '}'
+  ].join('\n'));
+  const be = async (p) => { const t = await (await fetch(`${base}${where}api/${p}`)).text(); try { return JSON.parse(t); } catch { return t; } };
+  const keys = await be('keys');
+  check(keys?.['stock/list.yaml'] === 'write' && keys['notes/'] === 'read' && !('profiles/smoke-a/' in keys), 'a backend is given the allowed brain paths, without another profile\'s notes');
+  check(String(await be('read')).includes('name: rice'), 'a backend reads an allowed brain file');
+  check(await be('write') === 'written' && fs.readFileSync(path.join(brainDir, 'stock', 'list.yaml'), 'utf8').includes('name: oats'), 'a backend writes an allowed brain file');
+  if (hasGit) {
+    let logged = '';
+    for (let i = 0; i < 20 && !logged.includes('through the app'); i++) {
+      await new Promise((r) => setTimeout(r, 150));
+      try { logged = execFileSync('git', ['log', '-1', '--format=%s %an'], { cwd: brainDir, encoding: 'utf8' }); } catch {}
+    }
+    check(/through the app smoke-planner in Nova smoke-b/.test(logged), 'a backend\'s brain changes are committed, authored by the profile using the app');
+  }
+  check(await be('outside') === 'ERR_ACCESS_DENIED', 'a backend can\'t read brain files it wasn\'t given');
+  await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { brain: 'read' } } });
+  check((await be('keys'))?.['stock/list.yaml'] === 'read' && await be('write') === 'ERR_ACCESS_DENIED', 'with read-only brain access, the backend can only read');
+  await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { brain: 'none' } } });
+  check(JSON.stringify(await be('keys')) === '{}', 'with no brain access, the backend gets no brain paths');
+  await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { brain: 'edit' } } });
+  fs.writeFileSync(path.join(appRoot, 'backend.js'), backendSource);
+
   fs.writeFileSync(path.join(appRoot, 'app.json'), JSON.stringify({ ...manifest, brain: { ...manifest.brain, 'img/': 'read' } }));
   summary = await listed();
   check(summary?.pending?.length === 1 && summary.pending[0].path === 'img/' && (await fetch(url('stock/list.yaml'))).status === 200,
@@ -447,6 +482,10 @@ async function apps(a, b, c) {
   await http('DELETE', '/api/apps/escape', { cookie: a });
   const list = await http('GET', '/api/apps', { cookie: a });
   check(list.data?.apps?.some((x) => x.slug === 'smoke-planner' && x.title === 'Smoke Planner') && list.data.canEdit, 'the app is listed with its title');
+  // The search palette finds apps by name or title, for profiles that can see them (v0.7.3).
+  const foundApps = (await http('GET', '/api/search?q=smoke%20planner&today=2026-10-03', { cookie: a })).data?.apps;
+  check(foundApps?.length === 1 && foundApps[0].slug === 'smoke-planner' && foundApps[0].title === 'Smoke Planner', 'the search palette finds an app');
+  check(!('apps' in ((await http('GET', '/api/search?q=planner&today=2026-10-03', { cookie: b })).data || {})), 'a profile without Apps access gets no apps in search');
   const appsDir = path.join(tmp, 'apps');
   fs.mkdirSync(path.join(appsDir, 'Not Valid'));
   check((await http('GET', '/api/apps', { cookie: a })).data?.apps?.some((x) => x.slug === 'Not Valid' && x.valid === false), 'a folder whose name can\'t be an address is listed as needing a new name');

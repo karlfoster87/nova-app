@@ -88,6 +88,23 @@ export function listApps(profile) {
   return { apps: out, categories: q.appCategories.all(), canEdit: can(profile, 'edit'), isAdmin: isAdmin(profile) };
 }
 
+// For the search palette: apps whose name, title or description holds every word. Folders that
+// can't be an address are left out, since a result opens the app running.
+export function searchApps(profile, words) {
+  requireView(profile, 'apps', 'read');
+  const out = [];
+  for (const name of folders()) {
+    if (!SLUG_RE.test(name)) continue;
+    const m = manifestOf(path.join(appsRoot(), name));
+    const title = typeof m.name === 'string' ? m.name.slice(0, 80) : '';
+    const description = typeof m.description === 'string' ? m.description.slice(0, 300) : '';
+    const hay = `${name} ${title} ${description}`.toLowerCase();
+    if (words.every((w) => hay.includes(w))) out.push({ slug: name, title, description });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 function can(profile, level) {
   try { requireView(profile, 'apps', level); return true; } catch { return false; }
 }

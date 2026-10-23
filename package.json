@@ -1,11 +1,11 @@
 {
   "name": "nova",
-  "version": "0.7.0",
+  "version": "0.7.3",
   "private": true,
   "description": "Self-hosted chat console for the Claude Agent SDK, sharing one markdown brain across profiles.",
   "type": "module",
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.15"
   },
   "scripts": {
     "start": "node server/launcher.js",

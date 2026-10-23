@@ -2,14 +2,16 @@
 // one request to /apps/<slug>/@<token>/api/... It runs in a fresh Node process per request
 // (apps/handler.js loads it), the same Node that runs Nova, so it needs nothing installed:
 //   export default async function (req) { return { status: 200, json: { ok: true } }; }
-//   req: { method, path, query: { name: value }, headers: { content-type, accept }, body (text), user, app, dataDir }
+//   req: { method, path, query: { name: value }, headers: { content-type, accept }, body (text), user, app, dataDir,
+//          brain: { '<path from app.json>': { path: '<absolute path>', access: 'read' | 'write' } } }
 //   return: { status?, headers?, json? | body? (text) | base64? (bytes) }; a string is sent as text,
 //   any other value as JSON, and nothing as 204.
 // Nothing runs until an admin turns the app's backend on (catalog.js setBackend).
 //
 // Containment, on every platform, through Node's permission model (--permission): the process
 // may read only its own app folder (and the loader), write only to the app's data/ folder,
-// and may not start programs, threads, native add-ons or WASI. It starts with a rebuilt
+// plus the brain paths an admin allowed the app (apps/brain.js backendGrants, as far as the
+// profile using it may; its changes there are committed after the request), and may not start programs, threads, native add-ons or WASI. It starts with a rebuilt
 // environment (no Claude sign-in, no Nova paths), a memory cap and a time limit; request and
 // response sizes are capped and only a few requests per app run at once. Node can't yet block
 // the network, so a backend can make web requests. data/ and the backend's code (backend.js,
@@ -22,6 +24,9 @@ import { config } from '../core/config.js';
 import { UserError } from '../core/errors.js';
 import { appDir, backendAllowed } from './catalog.js';
 import { APP_CSP } from './serve.js';
+import { backendGrants } from './brain.js';
+import { commitPaths } from '../brain/git.js';
+import { clearLinkIndex } from '../brain/links.js';
 
 const HANDLER = fileURLToPath(new URL('./handler.js', import.meta.url));
 const IS_WIN = process.platform === 'win32';
@@ -54,12 +59,15 @@ export async function runBackend(profile, slug, { req, res, rest, url }) {
   for await (const c of req) { size += c.length; if (size > max) throw new UserError('That request is too large for the app.', 413); chunks.push(c); }
   const data = path.join(dir, 'data');
   fs.mkdirSync(data, { recursive: true });
+  // Brain paths the app was allowed, as far as this profile may use them (apps/brain.js).
+  const grants = backendGrants(profile, slug);
   const input = JSON.stringify({
     method: req.method, path: rest, query: Object.fromEntries(url.searchParams),
     headers: { 'content-type': req.headers['content-type'] || '', accept: req.headers.accept || '' },
-    body: Buffer.concat(chunks).toString('utf8'), user: profile, app: slug, dataDir: data
+    body: Buffer.concat(chunks).toString('utf8'), user: profile, app: slug, dataDir: data, brain: grants.brain
   });
   const args = ['--permission', `--allow-fs-read=${HANDLER}`, `--allow-fs-read=${dir}`, `--allow-fs-write=${data}`,
+    ...[...grants.read, ...grants.write].map((p) => `--allow-fs-read=${p}`), ...grants.write.map((p) => `--allow-fs-write=${p}`),
     `--max-old-space-size=${config.apps.memoryMB}`, '--disable-warning=ExperimentalWarning', HANDLER];
 
   running.set(slug, (running.get(slug) || 0) + 1);
@@ -69,6 +77,14 @@ export async function runBackend(profile, slug, { req, res, rest, url }) {
   } finally {
     running.set(slug, running.get(slug) - 1);
     total--;
+  }
+  // Whatever it changed in the brain is committed like any brain edit, after the app has its answer.
+  // Only paths that are there now: git refuses the whole commit if any path matches nothing
+  // (a granted file not created yet, an empty granted folder).
+  const changed = grants.write.filter((p) => { try { return fs.statSync(p).isFile() || fs.readdirSync(p).length > 0; } catch { return false; } });
+  if (changed.length) {
+    clearLinkIndex();
+    commitPaths(profile, changed, `Edit through the app ${slug} in Nova`).catch((err) => console.error(`Committing ${slug}'s brain changes failed:`, err));
   }
 }
 

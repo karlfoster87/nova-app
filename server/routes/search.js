@@ -1,4 +1,4 @@
-// The search palette (Ctrl+K): brain files by name and by their text, tasks and sticky notes,
+// The search palette (Ctrl+K): brain files by name and by their text, tasks, sticky notes and apps,
 // in one request. Each group comes only from a view this profile can read, through that view's
 // own functions, so the usual access and visibility rules apply. Chats (their titles) and
 // skills are searched in the browser, which already has them.
@@ -8,6 +8,7 @@ import { findNames } from '../brain/links.js';
 import { searchBrainText } from '../brain/search.js';
 import { searchTasks } from '../views/tasks.js';
 import { searchNotes } from '../views/notes.js';
+import { searchApps } from '../apps/catalog.js';
 
 export default function searchRoutes(api) {
   // today: the browser's date, as for the Tasks board.
@@ -24,6 +25,7 @@ export default function searchRoutes(api) {
     }
     if (can(profile, 'tasks', 'read')) out.tasks = searchTasks(profile, words, url.searchParams.get('today'));
     if (can(profile, 'notes', 'read')) out.notes = searchNotes(profile, words);
+    if (can(profile, 'apps', 'read')) out.apps = searchApps(profile, words);
     return out;
   });
 }

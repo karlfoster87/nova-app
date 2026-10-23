@@ -20,12 +20,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { q } from '../core/db.js';
-import { fold } from '../core/paths.js';
+import { fold, within } from '../core/paths.js';
 import { UserError } from '../core/errors.js';
 import { hub } from '../core/hub.js';
-import { requireView } from '../accounts/access.js';
+import { requireView, can } from '../accounts/access.js';
 import { isAdmin } from '../accounts/profiles.js';
-import { resolve } from '../brain/resolve.js';
+import { resolve, root, isHidden, adminOnly, profilesPrefix } from '../brain/resolve.js';
 import { listFolder, writeFile, createFile, deletePath } from '../brain/files.js';
 import { appDir, manifestOf } from './catalog.js';
 import { APP_CSP } from './serve.js';
@@ -104,6 +104,40 @@ function levelFor(grants, rel) {
     if (hit) best = Math.max(best, LEVELS[level]);
   }
   return best;
+}
+
+// ---- For the app's backend (v0.7.3) -----------------------------------------------
+// A backend works on files directly, so the same paths are opened to its Node process
+// (backend.js adds --allow-fs-read / --allow-fs-write for each) and handed over as
+// req.brain = { '<path as in app.json>': { path: '<absolute path>', access: 'read' | 'write' } }.
+// The process can't ask the brain viewer each time, so its rules are applied here, up front,
+// for the profile using the app: no brain access, nothing; read-only access or an admin-only
+// folder (for a non-admin), read only; a hidden path, or a folder holding the profiles
+// folder (other profiles' notes would be inside), left out. Changes are committed afterwards.
+export function backendGrants(profile, slug) {
+  const out = { brain: {}, read: [], write: [] };
+  if (!can(profile, 'brain', 'read')) return out;
+  const editor = can(profile, 'brain', 'edit');
+  const profiles = profilesPrefix();
+  const brainRoot = root();
+  for (const [key, level] of Object.entries(effectiveGrants(slug))) {
+    const folder = key.endsWith('/');
+    const rel = key.replace(/\/$/, '');
+    if (isHidden(rel, profile)) continue;
+    if (folder && profiles && (fold(profiles) === fold(rel) || fold(profiles).startsWith(`${fold(rel)}/`))) continue;
+    let access = level;
+    if (access === 'write' && (!editor || (adminOnly(rel) && !isAdmin(profile)))) access = 'read';
+    let abs;
+    try { abs = resolve(profile, rel).abs; } catch (err) {
+      if (err.status !== 404 || folder || access !== 'write') continue;
+      // A file the app may create: its folder must exist, inside the brain.
+      try { abs = path.join(resolve(profile, path.posix.dirname(rel) === '.' ? '' : path.posix.dirname(rel)).abs, path.posix.basename(rel)); } catch { continue; }
+      if (!within(abs, brainRoot)) continue;
+    }
+    out.brain[key] = { path: abs, access };
+    (access === 'write' ? out.write : out.read).push(abs);
+  }
+  return out;
 }
 
 const TEXT_TYPES = { '.yaml': 'text/yaml', '.yml': 'text/yaml', '.json': 'application/json', '.md': 'text/markdown', '.csv': 'text/csv',
