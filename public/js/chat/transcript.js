@@ -91,7 +91,7 @@ function resultText(content) {
 }
 
 export class Transcript {
-  constructor(chatId, { onAnswer, onEdit, onChange, where }) {
+  constructor(chatId, { onAnswer, onEdit, onChange, where, loading }) {
     this.chatId = chatId;
     this.where = where; // category name shown on an empty new chat
     this.onAnswer = onAnswer;
@@ -107,7 +107,7 @@ export class Transcript {
     this.activity = 'idle';   // idle | thinking | writing | tool
     this.activityLabel = '';
     this.empty = true;
-    this.showEmpty();
+    if (!loading) this.showEmpty(); // a saved chat stays blank until its history arrives
   }
 
   showEmpty() {

@@ -57,7 +57,19 @@ export function deleteChat(profile, id) {
   requireChat(profile, id);
   existingRunner(profile, id)?.close();
   q.deleteChat.run(id, profile);
+  delivered.delete(id);
   hub.toProfile(profile, { t: 'chats_changed', deleted: id });
+}
+
+// The last few clientIds each chat was sent, in memory only. A tab whose socket dropped before
+// its message echoed reopens the chat and finds out from these whether the message arrived,
+// so it can put an undelivered one back in the box rather than lose it or send it twice.
+const delivered = new Map(); // chatId -> clientIds, newest last
+function noteDelivered(chatId, clientId) {
+  if (typeof clientId !== 'string' || !clientId || clientId.length > 100) return;
+  const list = delivered.get(chatId) || [];
+  list.push(clientId);
+  delivered.set(chatId, list.slice(-10));
 }
 
 // Added to each message sent with spoken replies on, so that reply is short and reads well
@@ -94,6 +106,7 @@ async function deliver(profile, row, runner, content, { text, files, voice, mode
   if (voice && !text.startsWith('/')) content = [...(typeof content === 'string' ? [{ type: 'text', text: content }] : content), { type: 'text', text: VOICE_NOTE }];
   const uuid = crypto.randomUUID();
   runner.send(content, uuid);
+  noteDelivered(row.id, clientId);
   hub.toProfile(profile, { t: 'user_echo', chatId: row.id, uuid, text, attachments: files.map(({ id, name, size, type }) => ({ id, name, size, type })), from: clientId });
 }
 
@@ -170,7 +183,7 @@ export async function openChat(profile, id) {
   let messages;
   try { messages = await getSessionMessages(id, { dir: config.paths.brainDir }); } catch { messages = []; }
   const runner = existingRunner(profile, id);
-  return { messages, state: stateOf(id), replay: [...(runner?.pendingRequests() || []), ...(runner?.runningTasks() || [])] };
+  return { messages, state: stateOf(id), delivered: delivered.get(id) || [], replay: [...(runner?.pendingRequests() || []), ...(runner?.runningTasks() || [])] };
 }
 
 // Transcripts written before Nova had its own Claude folder are copied in, so older chats keep

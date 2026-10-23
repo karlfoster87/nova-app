@@ -136,7 +136,16 @@ details.tool.error .tool-status { color: var(--bad); }
 .other:focus { border-color: var(--accent); outline: none; }
 
 /* ---- Composer ---------------------------------------------------------- */
-.composer { padding: 10px clamp(12px, 2.5vw, 22px) 14px; transition: background-color 0.15s; }
+.composer { position: relative; padding: 10px clamp(12px, 2.5vw, 22px) 14px; transition: background-color 0.15s; }
+/* Back to the latest message (scroll.js): floats over the end of the transcript while the reader is further up. */
+.to-bottom {
+  position: absolute; bottom: calc(100% + 4px); left: 50%; translate: -50% 0; z-index: 20; width: 38px; height: 38px;
+  display: grid; place-items: center; padding: 0; border: 1px solid var(--line-bright); border-radius: 50%;
+  background: var(--raised); color: var(--accent); cursor: pointer; box-shadow: 0 4px 14px -6px var(--glow);
+}
+.to-bottom[hidden] { display: none; }
+.to-bottom:hover { border-color: var(--accent); background: var(--raised-2); }
+.to-bottom svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .composer-box {
   max-width: 100ch; margin: 0 auto; border: 1px solid var(--line-bright); border-radius: var(--r-md); background: var(--shade);
   padding: 10px 12px 8px; box-shadow: inset 0 0 26px -16px var(--glow);

@@ -4,12 +4,15 @@
 // exist yet asks the server for one first (chats.js sends it once 'created' arrives).
 // Voice: the microphone dictates into the box, and the speaker turns on spoken replies, which
 // also asks Claude for short answers (the server adds a note to each message sent that way).
+// Nothing typed is lost to a dropped connection: the box is kept in this browser's storage
+// (a phone can reload an installed app at any time), a message isn't taken from the box while
+// the link is down, and one sent just as the link died comes back if the server never got it.
 import { $ } from '../lib/dom.js';
 import { fileChip } from '../lib/widgets.js';
 import { store } from '../lib/store.js';
 import { canDictate, canSpeakReplies, toggleDictation, stopDictation, stopSpeaking, unlockSpeech, onSpeaking, onVoiceChange, isSpeaking } from '../lib/speech.js';
 import { state, els } from '../state.js';
-import { send } from './socket.js';
+import { send, probe } from './socket.js';
 import { picks } from './pickers.js';
 import { initCommands } from './commands.js';
 
@@ -22,26 +25,70 @@ export function syncComposer() {
 }
 
 function autoGrow() { els.input.style.height = 'auto'; els.input.style.height = `${els.input.scrollHeight}px`; }
+const saveDraft = () => store.set('draft', els.input.value);
 
 // Slash command suggestions: / as the first character lists the commands a chat can run.
 const commands = initCommands({ input: els.input, menu: $('cmdMenu'), currentChat: () => state.current, onFill: autoGrow });
 
 function submit() {
   const text = els.input.value.trim();
-  const attachments = state.attachments.filter((a) => a.id).map((a) => a.id);
+  const items = state.attachments.filter((a) => a.id);
+  const attachments = items.map((a) => a.id);
   if ((!text && !attachments.length) || els.send.disabled) return;
+  if (state.ws?.readyState !== 1) {
+    probe();
+    showHint('Not connected to Nova just now. Your message is still here; send it again once the link shows Online.', true, 6000);
+    return;
+  }
   stopDictation();
   stopSpeaking();
   if (voiceOn()) unlockSpeech(); // this tap or key lets a phone play the reply when it comes
   els.input.value = '';
+  saveDraft();
   commands.close();
   autoGrow();
   state.attachments = []; // ones that failed to upload are dropped with the rest
   renderAttachments();
   const voice = voiceOn();
-  if (!state.current) { state.pending = { text, attachments, voice }; send({ t: 'new', categoryId: state.draft.categoryId, ...picks() }); return; }
+  const clientId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`; // randomUUID needs https or localhost
+  watchUnsent({ clientId, text, items });
+  if (!state.current) { state.pending = { text, attachments, voice, clientId }; send({ t: 'new', categoryId: state.draft.categoryId, ...picks() }); return; }
   state.speakFor[voice ? 'add' : 'delete'](state.current);
-  send({ t: 'send', chatId: state.current, text, attachments, voice, ...picks() });
+  send({ t: 'send', chatId: state.current, text, attachments, voice, clientId, ...picks() });
+}
+
+// ---- Messages that may not have arrived -------------------------------------
+// The last message sent waits here until its echo comes back. If none comes soon the link is
+// checked, and a dead one is dropped and reopened; the reopened chat's history then lists the
+// clientIds the server received (settleUnsent), and a missing one goes back in the box.
+let unsent = null;
+let unsentTimer = 0;
+
+function watchUnsent(message) {
+  unsent = message;
+  clearTimeout(unsentTimer);
+  unsentTimer = setTimeout(() => { if (unsent === message) probe(); }, 4000);
+}
+
+export function sentArrived(clientId) {
+  if (clientId && unsent?.clientId === clientId) { unsent = null; clearTimeout(unsentTimer); }
+}
+
+// A chat's history arrived with the clientIds it was sent (chatId null: a new chat that never
+// started), so a message still waiting either arrived or didn't.
+export function settleUnsent(chatId, delivered) {
+  if (!unsent || chatId !== state.current) return;
+  if (delivered.includes(unsent.clientId)) { sentArrived(unsent.clientId); return; }
+  const { text, items } = unsent;
+  sentArrived(unsent.clientId);
+  const typed = els.input.value.trim();
+  els.input.value = typed ? `${text}\n\n${typed}` : text;
+  saveDraft();
+  autoGrow();
+  state.attachments = [...items, ...state.attachments];
+  renderAttachments();
+  syncComposer();
+  showHint('Your last message didn\'t reach Nova, so it\'s back in the box. Send it again when you\'re ready.', true, 8000);
 }
 
 els.composer.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
@@ -49,7 +96,9 @@ els.input.addEventListener('keydown', (e) => {
   if (commands.onKeydown(e)) return; // the command list has the arrow keys, Enter, Tab and Esc while it's open
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
 });
-els.input.addEventListener('input', autoGrow);
+els.input.addEventListener('input', () => { autoGrow(); saveDraft(); });
+// What was in the box when the page last closed, unless something else filled it first.
+if (!els.input.value) { els.input.value = store.get('draft', ''); autoGrow(); }
 els.stop.addEventListener('click', () => { stopSpeaking(); send({ t: 'interrupt', chatId: state.current }); });
 
 // ---- Voice ----------------------------------------------------------------------
@@ -170,6 +219,7 @@ function renderAttachments() {
 // Puts text in the box for the user to check and send, e.g. a task handed to Nova.
 export function setDraft(text) {
   els.input.value = text;
+  saveDraft();
   autoGrow();
   els.input.focus();
   els.input.setSelectionRange(text.length, text.length);

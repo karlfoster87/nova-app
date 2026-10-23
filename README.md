@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.6.3 · Node 22.13+ · five dependencies · no build step
+Version 0.6.4 · Node 22.13+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -51,7 +51,7 @@ Press **Ctrl+K** (**⌘K** on a Mac), or the search button in the header on a ph
 
 ### Wherever you are
 
-Install Nova as an app on desktop or phone. It's fully responsive (on a phone, swipe in from either edge for the sidebar or the avatar panel, and tap the Nova logo to get back to your chats), dark or light, and keeps your chats in sync across every device. Run it remotely behind Cloudflare to reach it from anywhere.
+Install Nova as an app on desktop or phone. It's fully responsive (on a phone, swipe in from either edge for the sidebar or the avatar panel, and tap the Nova logo to get back to your chats), dark or light, and keeps your chats in sync across every device. Run it remotely behind Cloudflare to reach it from anywhere: a heartbeat keeps the connection open through the tunnel, a phone waking up reconnects at once without losing your place in the chat, and nothing you type is lost to a dropped connection (a message that never arrived comes back to the box).
 
 ![Nova on a phone: a chat with agents running in dark mode, and sticky notes in light mode](docs/screenshots/mobile.png)
 

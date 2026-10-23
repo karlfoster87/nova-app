@@ -10,7 +10,8 @@ import { Transcript } from './transcript.js';
 import { connect, send } from './socket.js';
 import { logEvent } from './activity.js';
 import { picks, setPicks, renderPickers, setMode } from './pickers.js';
-import { syncComposer, voiceOn } from './composer.js';
+import { syncComposer, voiceOn, sentArrived, settleUnsent } from './composer.js';
+import { mounted, spot, stick } from './scroll.js';
 import { speak, stopSpeaking, unlockSpeech } from '../lib/speech.js';
 import { initSidebar } from './sidebar.js';
 import { initPwa } from '../shell/pwa.js';
@@ -36,24 +37,33 @@ export async function startChats() {
   newChat();
   connect({
     onMessage: onServer,
-    // After an outage, notifications start afresh and the open chat reloads what it missed.
+    // After an outage, notifications start afresh and the open chat reloads what it missed, in
+    // place: the old copy stays on screen until the new one replaces it at the same spot. Other
+    // chats reload when next opened. A first message whose chat never came back returns to the box.
     onOpen(reconnected) {
       if (reconnected) pwa.reset();
-      if (state.current) { state.transcripts.delete(state.current); openChat(state.current); }
+      for (const id of state.transcripts.keys()) if (id !== state.current) state.transcripts.delete(id);
+      if (state.current) send({ t: 'open', chatId: state.current });
+      else if (state.pending) { state.pending = null; settleUnsent(null, []); }
     }
   });
 }
 
-function transcriptFor(chatId) {
+// Only the copy on screen follows the end and drives presence; one being filled from history
+// isn't mounted yet.
+function makeTranscript(chatId, loading = false) {
+  const t = new Transcript(chatId, {
+    loading,
+    onAnswer: (reqId, result) => send({ t: 'answer', chatId, reqId, result }),
+    onEdit: (uuid, text) => editMessage(chatId, uuid, text),
+    onChange: () => { if (chatId === state.current && t.el.isConnected) { stick(); updatePresence(); } }
+  });
+  return t;
+}
+
+function transcriptFor(chatId, loading = false) {
   let t = state.transcripts.get(chatId);
-  if (!t) {
-    t = new Transcript(chatId, {
-      onAnswer: (reqId, result) => send({ t: 'answer', chatId, reqId, result }),
-      onEdit: (uuid, text) => editMessage(chatId, uuid, text),
-      onChange: () => { if (chatId === state.current) { stickToBottom(); updatePresence(); } }
-    });
-    state.transcripts.set(chatId, t);
-  }
+  if (!t) { t = makeTranscript(chatId, loading); state.transcripts.set(chatId, t); }
   return t;
 }
 
@@ -75,12 +85,20 @@ function onServer(m) {
       loadChats();
       return;
     }
+    // Built off screen and swapped in whole, so a reload doesn't flash or lose the reader's place.
     case 'history': {
-      const t = transcriptFor(m.chatId);
+      const old = state.transcripts.get(m.chatId);
+      const t = makeTranscript(m.chatId);
       t.loadHistory(m.messages);
       t.setBusy(m.state === 'running');
+      state.transcripts.set(m.chatId, t);
       state.chatState.set(m.chatId, m.state);
-      if (m.chatId === state.current) { mountTranscript(t); stickToBottom(true); syncComposer(); }
+      if (m.chatId === state.current) {
+        mountTranscript(t, old?.el.isConnected && !old.empty ? spot() : null);
+        syncComposer();
+        updatePresence();
+      }
+      settleUnsent(m.chatId, m.delivered || []);
       return;
     }
     case 'chats_changed':
@@ -110,7 +128,7 @@ function onServer(m) {
   if (m.chatId && m.chatId !== state.current && m.t === 'sdk' && m.msg.type === 'result') state.unread.add(m.chatId);
   switch (m.t) {
     case 'sdk': t?.handleSdk(m.msg); speakReply(m); break;
-    case 'user_echo': t?.addUser(m.text, m.attachments || [], Date.now(), m.uuid); break;
+    case 'user_echo': sentArrived(m.from); t?.addUser(m.text, m.attachments || [], Date.now(), m.uuid); break;
     case 'rewound': t?.rewind(m.uuid); break;
     case 'state':
       state.chatState.set(m.chatId, m.state);
@@ -158,7 +176,7 @@ export function openChat(id) {
   setMode(chat?.permission_mode || 'default');
   const existing = state.transcripts.get(id);
   if (existing) mountTranscript(existing);
-  else { mountTranscript(transcriptFor(id)); send({ t: 'open', chatId: id }); }
+  else { mountTranscript(transcriptFor(id, true)); send({ t: 'open', chatId: id }); }
   els.sidebar.classList.remove('open');
   renderChatList();
   syncComposer();
@@ -179,7 +197,10 @@ export function newChat(categoryId = null) {
   els.input.focus();
 }
 
-function mountTranscript(t) { els.transcript.replaceChildren(t.el); }
+function mountTranscript(t, keep = null) {
+  els.transcript.replaceChildren(t.el);
+  mounted(t.el, keep);
+}
 
 // The main column's heading: the chat's title and where it's filed.
 function renderChatHead() {
@@ -198,12 +219,6 @@ function renderChatHead() {
 els.chatTitle.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') slide(els.chatTitle); });
 els.chatTitle.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') stopSlide(els.chatTitle); });
 els.chatTitle.addEventListener('click', () => slide(els.chatTitle, true));
-
-function stickToBottom(force = false) {
-  const el = els.transcript;
-  const near = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
-  if (force || near) el.scrollTop = el.scrollHeight;
-}
 
 // ---- Presence -------------------------------------------------------------------
 // Anything that wants to drive an avatar can listen for 'nova:presence' on window. The

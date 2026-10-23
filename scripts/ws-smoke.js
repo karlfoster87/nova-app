@@ -202,6 +202,8 @@ async function run() {
   const wsA = await connect({ cookie: a });
   const wsB = await connect({ cookie: b });
   check(!!(await next(wsA, (m) => m.t === 'meta').catch(() => null)), 'signed-in WebSocket opens and gets meta');
+  wsA.send(JSON.stringify({ t: 'ping' }));
+  check(!!(await next(wsA, (m) => m.t === 'pong').catch(() => null)), 'the WebSocket heartbeat answers ping with pong');
 
   // Profile A creates a chat (no prompt sent)
   wsA.send(JSON.stringify({ t: 'new' }));
@@ -213,6 +215,7 @@ async function run() {
   wsA.send(JSON.stringify({ t: 'open', chatId: id }));
   const hist = await next(wsA, (m) => m.t === 'history' && m.chatId === id).catch(() => null);
   check(Array.isArray(hist?.messages), 'owner can open the chat');
+  check(Array.isArray(hist?.delivered) && !hist.delivered.length, 'a chat history lists the messages it was sent (none yet)');
   wsA.send(JSON.stringify({ t: 'edit', chatId: id, uuid: crypto.randomUUID(), text: 'smoke test, should never be sent' }));
   const badEdit = await next(wsA, (m) => m.t === 'error' && m.chatId === id).catch(() => null);
   check(!!badEdit && !wsA.received.some((m) => m.t === 'rewound' || m.t === 'user_echo'), 'editing a message that isn\'t in the chat is refused and rewinds nothing');

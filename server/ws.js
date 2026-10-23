@@ -2,6 +2,9 @@
 // origin-checked to stop cross-site hijacking. Browsers send chat actions here (new, open,
 // send, answer, mode, interrupt); the server pushes chat events, meta and notices to every
 // tab of the profile through hub.js. See the wiki's websocket-protocol page for each message.
+// Proxies such as Cloudflare Tunnel close a socket that's quiet for a minute or two, and a phone
+// that sleeps leaves sockets that never close, so both ends keep a heartbeat: browsers send
+// 'ping' (answered with 'pong'), and the server pings each socket and drops any that miss one.
 import { WebSocketServer } from 'ws';
 import { UserError } from './core/errors.js';
 import { hub } from './core/hub.js';
@@ -13,6 +16,15 @@ import { ownedChat, createChat, sendMessage, editMessage, changeMode, openChat }
 
 export function attachSockets(server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
+  const beat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.missed) { ws.terminate(); continue; }
+      ws.missed = true;
+      ws.ping();
+    }
+  }, 30000);
+  beat.unref();
+  wss.on('close', () => clearInterval(beat));
   server.on('upgrade', (req, socket, head) => {
     const profile = profileFrom(req);
     if (!profile || !sameOrigin(req) || new URL(req.url, 'http://x').pathname !== '/ws') {
@@ -21,6 +33,7 @@ export function attachSockets(server) {
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       hub.add(profile, ws);
+      ws.on('pong', () => { ws.missed = false; });
       ws.send(JSON.stringify({ t: 'meta', meta: publicMeta() }));
       ws.on('message', (raw) => handle(profile, ws, raw).catch((err) =>
         ws.send(JSON.stringify({ t: 'error', message: err.message }))));
@@ -39,12 +52,14 @@ async function handle(profile, ws, raw) {
   const refuse = (message) => reply({ t: 'error', chatId: m.chatId, message });
 
   switch (m.t) {
+    case 'ping':
+      return reply({ t: 'pong' });
     case 'new':
       return reply({ t: 'created', chatId: createChat(profile, { model, effort, categoryId: m.categoryId }) });
     case 'open': {
       const chat = await openChat(profile, m.chatId);
       if (!chat) return reply({ t: 'error', message: 'Chat not found.' });
-      reply({ t: 'history', chatId: m.chatId, messages: chat.messages, state: chat.state });
+      reply({ t: 'history', chatId: m.chatId, messages: chat.messages, state: chat.state, delivered: chat.delivered });
       for (const p of chat.replay) reply(p);
       return;
     }
