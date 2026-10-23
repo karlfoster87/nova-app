@@ -12,6 +12,7 @@ import { meta, modelInfo } from '../claude/meta.js';
 import { rememberableRules, isApproved, remember, sessionRules, folderPaths, folderFor, addFolder } from './permissions.js';
 import { uploadsDir } from './uploads.js';
 import { novaServer, READ_TOOLS, describeCall } from './tools.js';
+import { can } from '../accounts/access.js';
 
 // Message types forwarded to the browser. Everything else stays server-side.
 const FORWARD = new Set([
@@ -33,11 +34,38 @@ export function sessionBase(profile) {
   fs.mkdirSync(uploads, { recursive: true });
   return {
     cwd: config.paths.brainDir,
-    additionalDirectories: [profileDir(profile), uploads, ...folderPaths(profile)],
+    additionalDirectories: [profileDir(profile), uploads, ...folderPaths(profile), ...(buildsApps(profile) ? [appsFolder()] : [])],
     settingSources: config.claude.settingSources,
     env: agentEnv()
   };
 }
+
+// Profiles with Apps edit access can have Nova build apps: the apps folder joins the chat's
+// folders, and the system prompt says how an app is laid out and how to link to one.
+const buildsApps = (profile) => can(profile, 'apps', 'edit');
+const appsFolder = () => { fs.mkdirSync(config.paths.appsDir, { recursive: true }); return config.paths.appsDir; };
+const appsNote = () => ' You can build web apps for the user in the Nova apps folder, ' + appsFolder() + '. Each app is one folder ' +
+  'whose name is its address: lower-case letters, numbers and single hyphens (like budget-planner). It runs in the browser at ' +
+  '/apps/<name>/, from index.html, inside a sandbox with its own origin, so use relative paths for its files (style.css, ' +
+  'not /style.css), keep everything the app needs in its folder or load libraries from https CDNs, and don\'t rely on ' +
+  'cookies or Nova\'s API. Put a short app.json in the folder: {"name": "Title", "description": "One line"}. If the app needs ' +
+  'server-side work, write backend.js, an ES module run by Nova\'s own Node.js (no packages to install): its default export ' +
+  'handles each request the app makes to the relative path api/<path>, as async function (req) with req = {method, path, ' +
+  'query, headers, body (text), user, app, dataDir}, and returns {status: 200, json: value}, or {status, body: "text", headers: ' +
+  '{"content-type": "text/html"}}. It runs in a fresh process for every request, so keep state in files under req.dataDir (the ' +
+  'data folder beside it), the only place it may write; it may read only its own app folder, can\'t start other programs, and ' +
+  'has a time limit. Use Node\'s built-in modules (node:fs, node:crypto, fetch), and put helper modules in a backend folder, ' +
+  'which, like backend.js and data, is never sent to the browser. A backend only runs after an admin turns it on in the Apps ' +
+  'view, so say so when you write one. ' +
+  'An app can also read and save files in the brain folder, such as a YAML or Markdown file Nova keeps there, so the app ' +
+  'becomes a friendly editor for it: list each file or folder (ending in /) in app.json as "brain": {"Inventory/items.yaml": ' +
+  '"write", "Recipes/": "read"}, with paths from the brain folder\'s root; "write" also allows creating and deleting there. ' +
+  'From the app\'s page, fetch(\'brain/Inventory/items.yaml\') returns the file (its ETag header is the version), a folder ' +
+  'comes back as JSON {entries: [{name, path, type, size}]}, fetch(\'brain/<path>\', {method: \'PUT\', body: text, headers: ' +
+  '{\'If-Match\': etag}}) saves it (409 if it changed meanwhile, so reload and merge), and method DELETE moves a file to the ' +
+  'brain\'s trash. Keep the file\'s existing structure and comments when saving, since Nova and the user read it too. These ' +
+  'paths only work after an admin allows them in the Apps view, so say so, and point at the exact paths. ' +
+  'To give the user a link that opens an app in Nova, write a markdown link to nova://apps/<name>, like [Open Budget planner](nova://apps/budget-planner).';
 
 // Commands Claude Code says only make sense in its own terminal (exit, statusline and the like),
 // from the latest chat that started. The composer leaves them out.
@@ -82,7 +110,8 @@ class ChatRunner {
           'knows you as Nova: call yourself Nova, never Claude or Claude Code. If asked what you run on or which model you are, ' +
           'say you are Nova, running on Anthropic\'s Claude through Claude Code. ' +
           `You are working under the "${profile}" profile. ` +
-          `Notes specific to this profile live in ${profileDir(profile)}; read them when context about the profile would help.`
+          `Notes specific to this profile live in ${profileDir(profile)}; read them when context about the profile would help.` +
+          (buildsApps(profile) ? appsNote() : '')
       },
       includePartialMessages: true,
       canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts)

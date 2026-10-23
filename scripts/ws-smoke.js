@@ -19,7 +19,8 @@ const port = await new Promise((resolve) => {
 });
 const base = `http://127.0.0.1:${port}`;
 fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({
-  server: { mode: 'local', port }, paths: { brainDir: path.join(tmp, 'brain') }, updates: { checkHours: 0 }, uploads: { maxMB: 1 }
+  server: { mode: 'local', port }, paths: { brainDir: path.join(tmp, 'brain') }, updates: { checkHours: 0 }, uploads: { maxMB: 1 },
+  apps: { timeoutSec: 5 }
 }));
 
 // Profiles go straight into the throwaway database. db.js reads NOVA_DATA_DIR on import.
@@ -383,6 +384,199 @@ async function brain(a, b, c) {
   await brainPages(a, b, c);
   await brainFiles(b, c);
   await tasksAndNotes(a, b, c);
+  await apps(a, b, c);
+}
+
+// Brain files an app may use (apps/brain.js): named in app.json, allowed by an admin, and
+// worked on as the profile using the app, within its own brain rights. smoke-b runs the app.
+async function appBrainFiles(a, b, where, appRoot) {
+  fs.mkdirSync(path.join(brainDir, 'stock', 'items'), { recursive: true });
+  fs.writeFileSync(path.join(brainDir, 'stock', 'list.yaml'), '# Kept for Nova\r\nitems:\r\n  - name: tea\r\n');
+  const manifest = { name: 'Smoke Planner', brain: { 'stock/list.yaml': 'write', 'stock/items/': 'write', 'notes/': 'read', 'profiles/smoke-a/': 'read', '../outside': 'read' } };
+  fs.writeFileSync(path.join(appRoot, 'app.json'), JSON.stringify(manifest));
+  const url = (p) => `${base}${where}brain/${p}`;
+  const listed = async () => (await http('GET', '/api/apps', { cookie: a })).data?.apps?.find((x) => x.slug === 'smoke-planner')?.brain;
+
+  let st = await fetch(url('stock/list.yaml'));
+  check(st.status === 403 && ((await st.json()).error || '').includes('admin'), 'an app can\'t use brain files until an admin allows them');
+  let summary = await listed();
+  check(summary?.pending?.length === 4 && !summary.declared.some((g) => g.path.includes('..')), 'the brain paths an app asks for wait for an admin (a path climbing out is dropped)');
+  check((await http('PATCH', '/api/apps/smoke-planner', { cookie: b, body: { brain: true } })).status === 403, 'only an admin can let an app use the brain');
+  check((await http('PATCH', '/api/apps/smoke-planner', { cookie: a, body: { brain: true } })).data?.allowed?.length === 4, 'an admin allows the brain paths an app asks for');
+
+  await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { brain: 'read' } } });
+  st = await fetch(url('stock/list.yaml'));
+  const etag = st.headers.get('etag');
+  check(st.status === 200 && (await st.text()).includes('name: tea') && /^"[0-9a-f]{40}"$/.test(etag || '') && st.headers.get('access-control-allow-origin') === '*',
+    'the app reads an allowed brain file, with its version as the ETag');
+  check((await fetch(url('stock/list.yaml'), { method: 'PUT', headers: { Origin: 'null' }, body: 'x' })).status === 403, 'a profile that can only read the brain can\'t save through an app');
+  await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { brain: 'edit' } } });
+  const saved = await fetch(url('stock/list.yaml'), { method: 'PUT', headers: { Origin: 'null', 'If-Match': etag, 'Content-Type': 'text/yaml' }, body: '# Kept for Nova\nitems:\n  - name: tea\n  - name: rice\n' });
+  check(saved.status === 200 && fs.readFileSync(path.join(brainDir, 'stock', 'list.yaml'), 'utf8') === '# Kept for Nova\r\nitems:\r\n  - name: tea\r\n  - name: rice\r\n',
+    'the app saves the brain file, keeping its line endings');
+  check((await fetch(url('stock/list.yaml'), { method: 'PUT', headers: { Origin: 'null', 'If-Match': etag }, body: 'stale' })).status === 409, 'saving over a version that changed meanwhile is refused');
+  const folder = await (await fetch(url('notes/'))).json().catch(() => ({}));
+  check(folder.entries?.some((e) => e.path === 'notes/a.md'), 'an allowed folder lists as JSON');
+  check((await fetch(url('notes/a.md'))).status === 200, 'files under an allowed folder can be read');
+  check((await fetch(url('notes/a.md'), { method: 'PUT', headers: { Origin: 'null' }, body: 'x' })).status === 403, 'a read-only grant can\'t save');
+  check((await fetch(url('bin/data.bin'))).status === 403, 'brain files the app wasn\'t given are refused');
+  check([400, 403, 404].includes((await fetch(url('notes/..%2F..%2Fconfig.json'))).status), 'an app can\'t climb out of its grant');
+  check((await fetch(url('profiles/smoke-a/secret.md'))).status === 404, 'another profile\'s notes stay hidden, even inside a grant');
+  const made = await fetch(url('stock/items/new.yaml'), { method: 'PUT', headers: { Origin: 'null' }, body: 'name: new\n' });
+  check(made.status === 201 && fs.existsSync(path.join(brainDir, 'stock', 'items', 'new.yaml')), 'the app creates a file in a folder it may change');
+  check((await fetch(url('stock/items/new.yaml'), { method: 'DELETE', headers: { Origin: 'null' } })).status === 200 &&
+    !fs.existsSync(path.join(brainDir, 'stock', 'items', 'new.yaml')), 'the app deletes a file there (to the brain\'s trash)');
+  fs.writeFileSync(path.join(appRoot, 'app.json'), JSON.stringify({ ...manifest, brain: { ...manifest.brain, 'img/': 'read' } }));
+  summary = await listed();
+  check(summary?.pending?.length === 1 && summary.pending[0].path === 'img/' && (await fetch(url('stock/list.yaml'))).status === 200,
+    'a path added to app.json later waits for the admin, while the allowed ones keep working');
+  check((await http('PATCH', '/api/apps/smoke-planner', { cookie: a, body: { brain: false } })).status === 200 &&
+    (await fetch(url('stock/list.yaml'))).status === 403, 'an admin takes brain access away again');
+}
+
+// Apps (v0.7.0): shared folders under data/apps, Apps access, the running app's sandbox and
+// token, and backends. smoke-a is an admin; smoke-b and smoke-c start with no Apps access.
+async function apps(a, b, c) {
+  check((await http('GET', '/api/apps')).status === 401, 'apps need a session');
+  check((await http('GET', '/api/apps', { cookie: b })).status === 403, 'a user has no Apps access by default');
+  check((await http('POST', '/api/apps', { cookie: a, origin: 'https://evil.example', body: { name: 'x' } })).status === 403, 'cross-origin app creation is refused');
+  const made = await http('POST', '/api/apps', { cookie: a, body: { name: 'Smoke Planner' } });
+  check(made.status === 200 && made.data?.slug === 'smoke-planner', 'an app is made from a name, with an address-safe folder name');
+  check((await http('POST', '/api/apps', { cookie: a, body: { name: 'smoke-planner' } })).status === 409, 'an app name can\'t be used twice');
+  check((await http('POST', '/api/apps', { cookie: a, body: { name: '../escape' } })).data?.slug === 'escape', 'a name with path characters becomes a plain folder name');
+  await http('DELETE', '/api/apps/escape', { cookie: a });
+  const list = await http('GET', '/api/apps', { cookie: a });
+  check(list.data?.apps?.some((x) => x.slug === 'smoke-planner' && x.title === 'Smoke Planner') && list.data.canEdit, 'the app is listed with its title');
+  const appsDir = path.join(tmp, 'apps');
+  fs.mkdirSync(path.join(appsDir, 'Not Valid'));
+  check((await http('GET', '/api/apps', { cookie: a })).data?.apps?.some((x) => x.slug === 'Not Valid' && x.valid === false), 'a folder whose name can\'t be an address is listed as needing a new name');
+  check((await http('PATCH', `/api/apps/${encodeURIComponent('Not Valid')}`, { cookie: a, body: { slug: 'now-valid' } })).data?.slug === 'now-valid', 'such a folder can be renamed into a valid app');
+
+  // Access levels
+  await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { apps: 'read' } } });
+  check((await http('GET', '/api/apps', { cookie: b })).data?.canEdit === false, 'read access lists apps without edit rights');
+  check((await http('POST', '/api/apps', { cookie: b, body: { name: 'nope' } })).status === 403, 'read access can\'t create an app');
+  check((await http('PUT', '/api/apps/smoke-planner/file', { cookie: b, body: { path: 'index.html', content: 'x', version: null } })).status === 403, 'read access can\'t save a file');
+  check((await http('DELETE', '/api/apps/smoke-planner', { cookie: b })).status === 403, 'read access can\'t delete an app');
+
+  // Files
+  const tree = await http('GET', '/api/apps/smoke-planner/tree', { cookie: b });
+  check(['app.json', 'index.html', 'style.css', 'app.js'].every((n) => tree.data?.entries?.some((e) => e.path === n)), 'a new app has a starting page, style, script and app.json');
+  const idx = await http('GET', '/api/apps/smoke-planner/file?path=index.html', { cookie: a });
+  check(idx.data?.kind === 'text' && typeof idx.data.version === 'string', 'an app file opens as text with a version');
+  for (const bad of ['../now-valid/app.json', '..%2F..%2Fconfig.json', '/etc/passwd', 'C:/Windows/win.ini']) {
+    const st = (await http('GET', `/api/apps/smoke-planner/file?path=${bad}`, { cookie: a })).status;
+    check(st === 400 || st === 404, `a path out of the app is refused (${bad})`);
+  }
+  check((await http('PUT', '/api/apps/smoke-planner/file', { cookie: a, body: { path: 'index.html', content: 'x', version: 'stale' } })).status === 409, 'saving over a changed file is refused');
+  const saved = await http('PUT', '/api/apps/smoke-planner/file', { cookie: a, body: { path: 'index.html', content: '<!doctype html><title>t</title><script src="app.js"></script><p>Hello app</p>', version: idx.data?.version } });
+  check(saved.status === 200 && saved.data?.version !== idx.data?.version, 'an app file saves with a new version');
+  check((await http('PUT', '/api/apps/smoke-planner/file', { cookie: a, body: { path: 'lib/util.js', content: 'export const x = 1;\n', version: null } })).status === 200, 'a new file in a new folder is created');
+  check((await http('PUT', '/api/apps/smoke-planner/file', { cookie: a, body: { path: 'lib/util.js', content: '', version: null } })).status === 409, 'a new file can\'t replace an existing one');
+  check((await http('DELETE', '/api/apps/smoke-planner/file?path=lib%2Futil.js', { cookie: a })).status === 200, 'an app file is deleted (to the trash)');
+
+  // Running: /apps/<slug> sends the browser to a token address; everything there is sandboxed.
+  const go = await fetch(`${base}/apps/smoke-planner`, { headers: { Cookie: b }, redirect: 'manual' });
+  const where = go.headers.get('location') || '';
+  check(go.status === 302 && /^\/apps\/smoke-planner\/@[0-9a-f]{48}\/$/.test(where), '/apps/<name> sends a signed-in profile to the app\'s own address');
+  check((await fetch(`${base}/apps/smoke-planner`, { redirect: 'manual' })).headers.get('location') === '/login', 'running an app needs a session');
+  check((await fetch(`${base}/apps/smoke-planner`, { headers: { Cookie: c }, redirect: 'manual' })).status === 403, 'a profile without Apps access can\'t run an app');
+  const page = await fetch(`${base}${where}`); // no cookie: the token is the credential
+  const csp = page.headers.get('content-security-policy') || '';
+  check(page.status === 200 && (await page.text()).includes('Hello app'), 'the app\'s page is served by its token, without a cookie');
+  check(/^sandbox [^;]*allow-scripts/.test(csp) && !csp.includes('allow-same-origin') && !csp.includes('allow-top-navigation'),
+    'the app runs sandboxed: scripts, but never allow-same-origin or top navigation');
+  check(page.headers.get('referrer-policy') === 'no-referrer', 'the app\'s token isn\'t sent on to other sites');
+  check((await fetch(`${base}${where}app.js`)).headers.get('content-type')?.startsWith('text/javascript'), 'the app\'s script is served with a script type');
+  const token = where.split('@')[1].replace('/', '');
+  check((await fetch(`${base}/apps/now-valid/@${token}/index.html`)).status === 401, 'a token works only for the app it was made for');
+  check((await fetch(`${base}/apps/smoke-planner/@${'0'.repeat(48)}/`)).status === 401, 'a made-up token is refused');
+  check((await fetch(`${base}${where}..%2F..%2Fconfig.json`)).status >= 400, 'a running app can\'t reach files outside its folder');
+
+  // Backend: a Node module, off until an admin turns it on; a user can't. It runs under Node's
+  // permission model, so it can read only its app and write only to data/.
+  const appRoot = path.join(appsDir, 'smoke-planner');
+  fs.mkdirSync(path.join(appRoot, 'backend'));
+  fs.writeFileSync(path.join(appRoot, 'backend', 'helper.js'), "export const helper = () => 'helper ok';\n");
+  fs.writeFileSync(path.join(appRoot, 'backend.js'), [
+    "import fs from 'node:fs';",
+    "import path from 'node:path';",
+    "import { helper } from './backend/helper.js';",
+    'export default async function (req) {',
+    "  const attempt = async (fn) => { try { await fn(); return 'allowed'; } catch (e) { return e.code || e.message; } };",
+    "  if (req.path === 'slow') return new Promise(() => setTimeout(() => {}, 60000));",
+    "  if (req.path === 'env') return Object.keys(process.env);",
+    "  if (req.path === 'boom') throw new Error('Boom from the app');",
+    "  if (req.path === 'noisy') { console.log('chatter'); process.stdout.write('more chatter'); return 'quiet answer'; }",
+    "  if (req.path === 'contained') return {",
+    "    readOutside: await attempt(() => fs.readFileSync(path.join(req.dataDir, '..', '..', '..', 'config.json'))),",
+    "    writeOwnCode: await attempt(() => fs.writeFileSync('index.html', 'changed by the backend')),",
+    "    writeData: await attempt(() => fs.writeFileSync(path.join(req.dataDir, 'count.txt'), '1')),",
+    "    spawn: await attempt(async () => (await import('node:child_process')).execFileSync(process.execPath, ['-v']))",
+    '  };',
+    '  return { status: 201, json: { method: req.method, path: req.path, q: req.query.q, body: req.body, user: req.user, app: req.app, helper: helper() } };',
+    '}'
+  ].join('\n'));
+  check((await fetch(`${base}${where}app.json`)).status === 200 && (await fetch(`${base}${where}backend.js`)).status === 404 &&
+    (await fetch(`${base}${where}backend/helper.js`)).status === 404, 'backend.js and the backend folder aren\'t served to the browser');
+  check((await fetch(`${base}${where}api/hello`)).status === 403, 'a backend doesn\'t run until an admin turns it on');
+  check((await http('PATCH', '/api/apps/smoke-planner', { cookie: b, body: { backend: true } })).status === 403, 'only an admin can turn a backend on');
+  check((await http('PATCH', '/api/apps/smoke-planner', { cookie: a, body: { backend: true } })).data?.backend === true, 'an admin turns the backend on');
+  const call = await fetch(`${base}${where}api/hello?q=1`, { method: 'POST', headers: { Origin: 'null', 'Content-Type': 'application/json' }, body: '{"n":2}' });
+  const reply = await call.json().catch(() => null);
+  check(call.status === 201 && reply?.method === 'POST' && reply.path === 'hello' && reply.q === '1' && reply.body === '{"n":2}' &&
+    reply.user === 'smoke-b' && reply.app === 'smoke-planner' && reply.helper === 'helper ok',
+  'the backend module gets the request and its answer goes back to the app (from an app\'s opaque origin)');
+  check((call.headers.get('content-security-policy') || '').startsWith('sandbox '), 'a backend\'s answer is sandboxed like the app');
+  // The app's origin is opaque, so a browser only lets it read answers that allow any origin.
+  check(call.headers.get('access-control-allow-origin') === '*', 'the app may read its backend\'s answer from its opaque origin');
+  const pre = await fetch(`${base}${where}api/hello`, { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type' } });
+  check(pre.status === 204 && pre.headers.get('access-control-allow-origin') === '*' && /POST/.test(pre.headers.get('access-control-allow-methods') || '') &&
+    /content-type/i.test(pre.headers.get('access-control-allow-headers') || ''), 'a JSON request\'s preflight is answered');
+  const refusedCors = await fetch(`${base}/apps/smoke-planner/@${'0'.repeat(48)}/api/hello`);
+  check(refusedCors.status === 401 && refusedCors.headers.get('access-control-allow-origin') === '*', 'the app can read an error too, so it can say what went wrong');
+  const fence = await (await fetch(`${base}${where}api/contained`)).json().catch(() => ({}));
+  check(fence.readOutside === 'ERR_ACCESS_DENIED', 'a backend can\'t read files outside its app');
+  check(fence.writeOwnCode === 'ERR_ACCESS_DENIED' && fs.readFileSync(path.join(appRoot, 'index.html'), 'utf8').includes('Hello app'), 'a backend can\'t change its own code');
+  check(fence.writeData === 'allowed' && fs.existsSync(path.join(appRoot, 'data', 'count.txt')), 'a backend can write to its data folder');
+  check(fence.spawn === 'ERR_ACCESS_DENIED', 'a backend can\'t start other programs');
+  const env = await (await fetch(`${base}${where}api/env`)).json().catch(() => []);
+  check(Array.isArray(env) && !env.some((k) => /CLAUDE|ANTHROPIC|NOVA_DATA/i.test(k)) && env.includes('NOVA_APP_DATA'), 'the backend starts with a clean environment, without Nova\'s or Claude\'s variables');
+  const noisy = await fetch(`${base}${where}api/noisy`);
+  check(noisy.status === 200 && (await noisy.text()) === 'quiet answer', 'what a backend logs doesn\'t spoil its answer');
+  const boom = await fetch(`${base}${where}api/boom`);
+  check(boom.status === 500 && ((await boom.json().catch(() => ({}))).error || '').includes('Boom from the app'), 'a backend\'s error comes back as a 500 that names it');
+  check((await fetch(`${base}${where}data/count.txt`)).status === 404, 'a backend\'s data folder isn\'t served to the browser');
+  const slow = await fetch(`${base}${where}api/slow`);
+  check(slow.status === 504, 'a backend that runs past the time limit is stopped');
+  await appBrainFiles(a, b, where, appRoot);
+  check((await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { apps: 'none' } } })).status === 200 &&
+    (await fetch(`${base}${where}`)).status === 403, 'taking Apps access away stops a running app at once');
+
+  // Categories, moves, rename and delete
+  const cat = await http('POST', '/api/app-categories', { cookie: a, body: { name: 'Tools' } });
+  check(!!cat.data?.id, 'an app category is created');
+  check((await http('POST', '/api/app-categories', { cookie: a, body: { name: 'tools' } })).status === 409, 'app category names are unique');
+  check((await http('PATCH', '/api/apps/smoke-planner', { cookie: a, body: { categoryId: cat.data?.id } })).data?.categoryId === cat.data?.id, 'an app moves into a category');
+  const cat2 = await http('POST', '/api/app-categories', { cookie: a, body: { name: 'Games' } });
+  const order = await http('POST', `/api/app-categories/${cat2.data?.id}/move`, { cookie: a, body: { beforeId: cat.data?.id } });
+  check(order.data?.map((x) => x.name).join(',') === 'Games,Tools', 'app categories reorder');
+  await http('DELETE', `/api/app-categories/${cat.data?.id}`, { cookie: a });
+  check((await http('GET', '/api/apps', { cookie: a })).data?.apps?.find((x) => x.slug === 'smoke-planner')?.categoryId === null, 'deleting a category leaves its apps uncategorised');
+  // A download the browser abandons must not leave the file open: on Windows that blocks the rename below.
+  fs.writeFileSync(path.join(appsDir, 'smoke-planner', 'big.bin'), Buffer.alloc(8 * 1024 * 1024, 1));
+  const goA = await fetch(`${base}/apps/smoke-planner`, { headers: { Cookie: a }, redirect: 'manual' });
+  const abort = new AbortController();
+  const big = await fetch(`${base}${goA.headers.get('location')}big.bin`, { signal: abort.signal });
+  await big.body.getReader().read();
+  abort.abort();
+  await new Promise((r) => setTimeout(r, 300));
+  const renamed = await http('PATCH', '/api/apps/smoke-planner', { cookie: a, body: { slug: 'smoke-tools' } });
+  check(renamed.data?.slug === 'smoke-tools' && fs.existsSync(path.join(appsDir, 'smoke-tools', 'index.html')), 'renaming an app renames its folder');
+  check((await http('PATCH', '/api/apps/smoke-tools', { cookie: a, body: { slug: 'Bad Name' } })).status === 400, 'an app can\'t be renamed to a name that isn\'t an address');
+  check((await http('GET', '/api/apps', { cookie: a })).data?.apps?.find((x) => x.slug === 'smoke-tools')?.backend === true, 'a renamed app keeps its backend setting');
+  check((await http('DELETE', '/api/apps/smoke-tools', { cookie: a })).status === 200 && !fs.existsSync(path.join(appsDir, 'smoke-tools')) &&
+    fs.readdirSync(path.join(appsDir, '.trash')).some((n) => n.startsWith('smoke-tools-')), 'deleting an app moves it to the trash');
 }
 
 // Brain video: streamed in byte ranges for the viewer's player. smoke-c has no brain access.

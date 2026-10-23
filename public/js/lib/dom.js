@@ -32,3 +32,20 @@ export function svgIcon(paths, attrs = {}) {
   }
   return svg;
 }
+
+// The copy and copied icons, for any button that copies something.
+export const COPY_ICON = ['M9 9h11v11H9Z', 'M15 5V4H4v11h1'];
+export const COPIED_ICON = ['M5 12.5 10 17.5 19 7'];
+
+// Puts text on the clipboard. Over plain http (a LAN address) the async clipboard API is
+// missing, so it falls back to a hidden textarea and the old copy command. Throws if both fail.
+export async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const area = h('textarea', { readonly: true, class: 'copy-buffer' });
+  area.value = text;
+  document.body.append(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  area.remove();
+  if (!ok) throw new Error('copy failed');
+}

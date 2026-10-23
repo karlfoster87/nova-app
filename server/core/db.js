@@ -52,6 +52,12 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS pictures (
     profile TEXT PRIMARY KEY, type TEXT NOT NULL, data BLOB NOT NULL, updated_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS apps (
+    slug TEXT PRIMARY KEY COLLATE NOCASE, category_id TEXT, backend INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS app_categories (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL, created_at INTEGER NOT NULL
+  );
 `);
 
 // ---- Migrations ---------------------------------------------------------------
@@ -70,6 +76,7 @@ addColumn('profiles', 'access', 'TEXT');     // JSON { view: level }, null = def
 addColumn('profiles', 'prefs', 'TEXT');      // JSON personal preferences, null = defaults
 addColumn('notes', 'active', 'INTEGER NOT NULL DEFAULT 1'); // 0 = long-standing
 addColumn('notes', 'shared', 'INTEGER NOT NULL DEFAULT 0'); // 1 = shown to every profile (views/notes.js)
+addColumn('apps', 'brain_grants', 'TEXT'); // JSON { path: 'read' | 'write' } an admin allowed (apps/brain.js); null = none
 
 // Rows from before chats were tied to a brain belong to whichever brain is active the
 // first time this runs.
@@ -189,7 +196,27 @@ export const q = {
   addNote: db.prepare('INSERT INTO notes (id, profile, text, color, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
   updateNote: db.prepare('UPDATE notes SET text = ?, color = ?, active = ?, updated_at = ? WHERE id = ? AND profile = ?'),
   setNotePosition: db.prepare('UPDATE notes SET position = ? WHERE id = ? AND profile = ?'),
-  deleteNote: db.prepare('DELETE FROM notes WHERE id = ? AND profile = ?')
+  deleteNote: db.prepare('DELETE FROM notes WHERE id = ? AND profile = ?'),
+
+  // Apps (apps/catalog.js): shared by every profile, so no profile column. The folders are the
+  // apps; a row holds what Nova knows about one (its category, whether its backend may run).
+  apps: db.prepare('SELECT slug, category_id, backend, brain_grants, created_at FROM apps'),
+  app: db.prepare('SELECT * FROM apps WHERE slug = ?'),
+  addApp: db.prepare('INSERT OR IGNORE INTO apps (slug, category_id, created_at) VALUES (?, ?, ?)'),
+  renameApp: db.prepare('UPDATE apps SET slug = ? WHERE slug = ?'),
+  deleteApp: db.prepare('DELETE FROM apps WHERE slug = ?'),
+  setAppCategory: db.prepare('UPDATE apps SET category_id = ? WHERE slug = ?'),
+  setAppBackend: db.prepare('UPDATE apps SET backend = ? WHERE slug = ?'),
+  setAppBrainGrants: db.prepare('UPDATE apps SET brain_grants = ? WHERE slug = ?'),
+  appCategories: db.prepare('SELECT id, name, position FROM app_categories ORDER BY position, created_at'),
+  appCategory: db.prepare('SELECT * FROM app_categories WHERE id = ?'),
+  appCategoryByName: db.prepare('SELECT * FROM app_categories WHERE name = ? COLLATE NOCASE'),
+  nextAppCategoryPosition: db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS n FROM app_categories'),
+  addAppCategory: db.prepare('INSERT INTO app_categories (id, name, position, created_at) VALUES (?, ?, ?, ?)'),
+  renameAppCategory: db.prepare('UPDATE app_categories SET name = ? WHERE id = ?'),
+  setAppCategoryPosition: db.prepare('UPDATE app_categories SET position = ? WHERE id = ?'),
+  uncategoriseApps: db.prepare('UPDATE apps SET category_id = NULL WHERE category_id = ?'),
+  deleteAppCategory: db.prepare('DELETE FROM app_categories WHERE id = ?')
 };
 
 // Every table holding a profile's rows, so renaming or removing a profile covers them all in

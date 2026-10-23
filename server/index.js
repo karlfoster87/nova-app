@@ -29,10 +29,11 @@ import settingsRoutes from './routes/settings.js';
 import updateRoutes from './routes/updates.js';
 import voiceRoutes from './routes/voice.js';
 import searchRoutes from './routes/search.js';
+import appRoutes from './routes/apps.js';
 
-const open = createRouter(); // routes that need no session: health, sign-in, brain pages (own token)
+const open = createRouter(); // routes that need no session: health, sign-in, brain pages and running apps (own tokens)
 const api = createRouter();  // everything else, for a signed-in profile
-for (const register of [authRoutes, profileRoutes, chatRoutes, permissionRoutes, brainRoutes, viewRoutes, settingsRoutes, updateRoutes, voiceRoutes, searchRoutes]) {
+for (const register of [authRoutes, profileRoutes, chatRoutes, permissionRoutes, brainRoutes, viewRoutes, settingsRoutes, updateRoutes, voiceRoutes, searchRoutes, appRoutes]) {
   register(api, open);
 }
 
@@ -41,7 +42,9 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
   const profile = profileFrom(req);
   try {
-    if (req.method !== 'GET' && !sameOrigin(req)) return send(res, 403, { error: 'Cross-origin request refused.' });
+    // A running app posts to its backend from its sandbox's opaque origin (Origin: null). It
+    // carries no cookie there; the token in its path is the credential (apps/serve.js).
+    if (req.method !== 'GET' && !sameOrigin(req) && !p.startsWith('/apps/')) return send(res, 403, { error: 'Cross-origin request refused.' });
     if (servePublic(res, p) || await open.handle({ req, res, url, profile })) return;
     if (!profile) {
       if (p.startsWith('/api/')) return send(res, 401, { error: 'Sign in first.' });

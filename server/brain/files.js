@@ -98,6 +98,32 @@ export async function writeFile(profile, input, content, version) {
   return { version: versionOf(data), size: after.size, mtime: after.mtimeMs, ...(await commitPaths(profile, [abs], `Edit ${rel} in Nova`)) };
 }
 
+// Creates a new text file in an existing folder, with the same rules as an upload (names,
+// hidden paths, admin-only folders) and a commit. Used by apps allowed to write to the brain.
+export async function createFile(profile, input, content, how = 'an app') {
+  requireView(profile, 'brain', 'edit');
+  if (typeof content !== 'string') throw new UserError('Nothing to save.');
+  const data = Buffer.from(content, 'utf8');
+  if (data.length > config.brain.maxEditKB * 1024) throw new UserError(`That's too large to save from Nova (the limit is ${config.brain.maxEditKB} KB).`, 413);
+  const cleaned = String(input ?? '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const at = cleaned.lastIndexOf('/');
+  const dir = resolve(profile, at < 0 ? '' : cleaned.slice(0, at));
+  if (!fs.statSync(dir.abs).isDirectory()) throw new UserError('That folder doesn\'t exist.', 404);
+  const name = cleanSegment(cleaned.slice(at + 1));
+  if (!name || name === '..' || name !== cleaned.slice(at + 1)) throw new UserError('That file name isn\'t valid.');
+  const rel = [dir.rel, name].filter(Boolean).join('/');
+  if (isHidden(rel, profile)) throw new UserError(`${rel} would be hidden in Nova, so it wasn't created.`, 403);
+  if (adminOnly(rel) && !isAdmin(profile)) throw new UserError(`Only an admin can add files to ${rel.split('/')[0]}, because it steers every chat.`, 403);
+  const target = path.join(dir.abs, name);
+  try { fs.writeFileSync(target, data, { flag: 'wx' }); } catch (err) {
+    if (err.code === 'EEXIST') throw new UserError(`${rel} already exists.`, 409);
+    throw new UserError(`Couldn't create ${rel}: ${err.message}`, 409);
+  }
+  clearLinkIndex();
+  console.log(`${profile} created ${rel} in the brain through ${how}.`);
+  return { path: rel, version: versionOf(data), size: data.length, ...(await commitPaths(profile, [target], `Create ${rel} in Nova`)) };
+}
+
 // ---- Deleting and uploading -------------------------------------------------
 
 // Moves a file or folder into <brain>/<brain.trashDir>/<time>/<its path>, the way Obsidian's

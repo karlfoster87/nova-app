@@ -115,6 +115,8 @@ function onServer(m) {
       refreshBadges(); // this tab's own changes move the counts too
       if (m.from !== TAB_ID) for (const v of views.values()) v.onServer?.(m);
       return;
+    // An app was added, changed or removed (here, in another tab, or by Nova's tools).
+    case 'apps_changed': for (const v of views.values()) v.onServer?.(m); return;
     case 'mode': {
       const chat = state.chats.find((c) => c.id === m.chatId);
       if (chat) chat.permission_mode = m.mode;
@@ -127,7 +129,12 @@ function onServer(m) {
   const t = m.chatId && state.transcripts.get(m.chatId);
   if (m.chatId && m.chatId !== state.current && m.t === 'sdk' && m.msg.type === 'result') state.unread.add(m.chatId);
   switch (m.t) {
-    case 'sdk': t?.handleSdk(m.msg); speakReply(m); break;
+    case 'sdk':
+      t?.handleSdk(m.msg);
+      speakReply(m);
+      // A finished turn may have written app files, which the Apps view can't hear about otherwise.
+      if (m.msg.type === 'result') for (const v of views.values()) v.onServer?.({ t: 'apps_changed' });
+      break;
     case 'user_echo': sentArrived(m.from); t?.addUser(m.text, m.attachments || [], Date.now(), m.uuid); break;
     case 'rewound': t?.rewind(m.uuid); break;
     case 'state':

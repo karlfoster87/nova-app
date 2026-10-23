@@ -2,7 +2,7 @@
 // with tool cards, sub-agent tasks, and permission and question cards. One Transcript per chat;
 // chats.js feeds it server events and mounts the open one. It also tracks what Claude is doing
 // (activity, running and recently finished agents) for the presence panel.
-import { h, svgIcon } from '../lib/dom.js';
+import { h, svgIcon, copyText, COPY_ICON, COPIED_ICON } from '../lib/dom.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { fileChip } from '../lib/widgets.js';
 import { confirmDialog } from '../lib/dialog.js';
@@ -29,21 +29,8 @@ const TURN_ICONS = {
 const turnIcon = (kind) => svgIcon(TURN_ICONS[kind], { class: 'turn-icon' });
 
 // Reply text as markdown, with a copy button on each code block. The button sits in a wrapper
-// rather than the <pre>, so it stays put when a long line scrolls sideways. Over plain http
-// (a LAN address) the async clipboard API is missing, so it falls back to a hidden textarea.
-const COPY_ICON = ['M9 9h11v11H9Z', 'M15 5V4H4v11h1'];
-const COPIED_ICON = ['M5 12.5 10 17.5 19 7'];
+// rather than the <pre>, so it stays put when a long line scrolls sideways (copyText, lib/dom.js).
 const EDIT_ICON = ['M4 20h4L19 9l-4-4L4 16Z', 'M13.5 6.5l4 4'];
-async function copyText(text) {
-  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
-  const area = h('textarea', { readonly: true, class: 'copy-buffer' });
-  area.value = text;
-  document.body.append(area);
-  area.select();
-  const ok = document.execCommand('copy');
-  area.remove();
-  if (!ok) throw new Error('copy failed');
-}
 function copyButton(pre) {
   const btn = h('button', { type: 'button', class: 'icon-btn code-copy', title: 'Copy code', 'aria-label': 'Copy code' }, svgIcon(COPY_ICON));
   const reset = () => { btn.replaceChildren(svgIcon(COPY_ICON)); btn.title = 'Copy code'; btn.classList.remove('copied'); };

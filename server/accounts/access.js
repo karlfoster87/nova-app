@@ -12,7 +12,8 @@ const RANK = { none: 0, read: 1, edit: 2 };
 export const VIEWS = [
   { id: 'brain', label: 'Brain', noun: 'brain' },
   { id: 'tasks', label: 'Tasks', noun: 'task list' },
-  { id: 'notes', label: 'Notes', noun: 'notes' }
+  { id: 'notes', label: 'Notes', noun: 'notes' },
+  { id: 'apps', label: 'Apps', noun: 'apps' }
 ];
 const byId = new Map(VIEWS.map((v) => [v.id, v]));
 

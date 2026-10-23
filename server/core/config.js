@@ -32,7 +32,8 @@ const defaults = {
   },
   paths: {
     brainDir: path.join(DATA_DIR, 'brain'),
-    profilesDir: null     // null = <brainDir>/profiles
+    profilesDir: null,    // null = <brainDir>/profiles
+    appsDir: path.join(DATA_DIR, 'apps') // the Apps view's web apps, one folder each
   },
   claude: {
     settingSources: ['project', 'local']  // the brain's .claude governs; never add 'user'
@@ -67,7 +68,15 @@ const defaults = {
     // Access for user profiles an admin hasn't set: 'none' | 'read' | 'edit'. A view
     // missing here is 'none'. Admins always have edit.
     // Tasks and notes are each profile's own, so users can edit them by default.
-    userDefaults: { brain: 'read', tasks: 'edit', notes: 'edit' }
+    userDefaults: { brain: 'read', tasks: 'edit', notes: 'edit', apps: 'none' }
+  },
+  apps: {
+    // An app's backend.js runs in its own Node process once per request to
+    // /apps/<slug>/@<token>/api/..., only after an admin turns it on for that app.
+    timeoutSec: 15,            // a request still running after this is stopped
+    memoryMB: 256,             // the backend process's heap
+    maxRequestKB: 1024,
+    maxResponseKB: 5120
   },
   brain: {
     // Hidden from the brain viewer, on top of .git and node_modules. A pattern without a

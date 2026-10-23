@@ -4,8 +4,21 @@ import { marked, Marked } from '/vendor/marked.js';
 import DOMPurify from '/vendor/purify.js';
 
 marked.setOptions({ gfm: true, breaks: false });
+// nova://apps/<name> links (Nova writes them for apps it builds) become in-app routes before
+// DOMPurify checks the address, which would drop an unknown scheme. Those, and any #apps/…
+// link, stay in this tab with data-route (shell/views.js opens them); the rest open a new tab.
+const NOVA_LINK = /^nova:\/\/apps?\/([a-z0-9-]+)\/?(?:[?#].*)?$/i;
+DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+  if (data.attrName === 'href' && node.tagName === 'A') {
+    const m = NOVA_LINK.exec(data.attrValue.trim());
+    if (m) data.attrValue = `#apps/${m[1].toLowerCase()}/run`;
+  }
+});
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-  if (node.tagName === 'A') { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
+  if (node.tagName !== 'A') return;
+  if (/^#apps\//.test(node.getAttribute('href') || '')) { node.setAttribute('data-route', ''); node.classList.add('nova-link'); return; }
+  node.setAttribute('target', '_blank');
+  node.setAttribute('rel', 'noopener noreferrer');
 });
 
 // Obsidian-style links for the brain viewer: [[Note]], [[Note|shown text]], [[Note#Heading]],

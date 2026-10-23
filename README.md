@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.6.4 · Node 22.13+ · five dependencies · no build step
+Version 0.7.0 · Node 22.13+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -44,6 +44,14 @@ Nova can use them too. Ask in any chat ("plan my week from the sprint note", "ti
   <img src="docs/screenshots/tasks.png" alt="The Tasks board with today's and tomorrow's tasks, one with subtasks" width="49%">
   <img src="docs/screenshots/notes.png" alt="Sticky notes in several colours, with a long-standing section" width="49%">
 </p>
+
+### Apps Nova builds for you
+
+Ask Nova for a small web app (a budget planner, a dashboard, a quiz) and it builds one in Nova's apps folder, one folder per app. The **Apps** tab lists them, in categories you can drag them between. Pick one to browse and edit its files, with syntax colouring for HTML, CSS, JavaScript, JSON, Python and Markdown, then press **Run app** to use it: it shows as a plain browser page, true to its source. The copy button beside it copies its address, `/apps/<name>/`, to open in a browser of its own (where you sign in to Nova as usual). Nova links to an app with `nova://apps/<name>`, so a link in a chat reply or a brain note opens the app straight away.
+
+Apps run in a sandbox: they can't see Nova's sign-in or call Nova as you, and each can only reach its own files. An app can also have a backend: `backend.js`, a JavaScript module that Nova's own Node.js runs for each request the app sends to its `api/` address, so there's nothing extra to install. It only runs after an admin turns it on for that app. Each request gets a fresh, locked-down Node process (Node's permission model, on Windows and Linux alike): it can read only its own app's folder, write only to the app's `data` folder, can't start other programs, and has a clean environment, a memory cap and a time limit. It can still reach the internet, so only turn on backends you trust.
+
+An app can also work on files in the brain, such as a YAML file where Nova keeps a list of things, so the app becomes a friendly form for editing it while the file stays where Nova reads it. The app names the files and folders it needs in its `app.json` (`"brain": { "Inventory/items.yaml": "write", "Recipes/": "read" }`), and an admin allows them once from a notice in the Apps view; anything added later waits for the admin again. The app then reads and saves them through its own address (`brain/<path>`), always as the person using it: it can never do more than they could in the Brain view, saves check the file hasn't changed meanwhile, and changes are committed like any other brain edit. Who can see and change apps is set per profile, like the other views (users have no access until an admin gives it).
 
 ### Find anything
 
@@ -119,7 +127,7 @@ For a tight setup, limit the container's outbound traffic to Anthropic and Claud
 ## Good to know
 
 - **Your data** lives in `data/` (or `/opt/nova/data`): `config.json`, the database, Nova's own Claude sign-in and chat transcripts, attachments and logs. Keep it private, backups included.
-- **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `updates.checkHours` (24, or 0 to stop checking).
+- **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `updates.checkHours` (24, or 0 to stop checking), `paths.appsDir` (`data/apps`), and for app backends `apps.timeoutSec` (15) and `apps.memoryMB` (256).
 - **Security:** every request is checked against the signed-in profile, passwords and PINs are hashed with scrypt, sessions are HttpOnly and SameSite=Strict, a strict Content Security Policy is in place, and chat output is sanitised before it's shown. Nova's chats act as the user running Nova, so in a container, the container is the boundary.
 
 ## Under the hood
@@ -127,7 +135,7 @@ For a tight setup, limit the container's outbound traffic to Anthropic and Claud
 Node.js with native ES modules in the browser: no framework, no bundler, and only five dependencies (the Agent SDK, `ws`, `marked`, `dompurify`, and `zod` for the schemas of Nova's own task and note tools, which the SDK already needs). Data is in SQLite through `node:sqlite`.
 
 ```
-server/    the Node server: routes/, ws.js, and a folder per area (chat, brain, accounts, claude, views, updates, voice)
+server/    the Node server: routes/, ws.js, and a folder per area (chat, brain, apps, accounts, claude, views, updates, voice)
 public/    the browser app: js/ (a folder per area) and css/ (one stylesheet per area)
 scripts/   install scripts, profile and sign-in tools, checks and smoke tests
 ```

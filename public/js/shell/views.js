@@ -1,24 +1,31 @@
-// Views: Chats is always there. Brain, Tasks and Notes are listed by the server with this
+// Views: Chats is always there. Brain, Tasks, Notes and Apps are listed by the server with this
 // profile's access level, loaded on first use from views/, and each owns a sidebar pane and a
 // main pane. The server checks access on every route; this only decides what to show.
 // Also the counts on the view tabs, and routes like #brain/folder/file.md, which reopen a view
 // after a reload and are how the installed app's shortcuts open one.
 import { $, h, svgIcon } from '../lib/dom.js';
 import { store } from '../lib/store.js';
+import { openMenu } from '../lib/menu.js';
 import { localDay } from '../lib/format.js';
 import { state, els } from '../state.js';
 import { openChat, newChat, sidebar } from '../chat/chats.js';
 import { setDraft } from '../chat/composer.js';
 
 // A new view adds its module here (and its entry in server/accounts/access.js VIEWS).
-const VIEW_MODULES = { brain: '../views/brain.js', tasks: '../views/tasks.js', notes: '../views/notes.js' };
+const VIEW_MODULES = { brain: '../views/brain.js', tasks: '../views/tasks.js', notes: '../views/notes.js', apps: '../views/apps.js' };
 const VIEW_ICONS = {
   chats: ['M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 20 12Z', 'M8.5 12h.01M12 12h.01M15.5 12h.01'],
   brain: ['M9.5 3.5A3 3 0 0 0 6.6 6 3 3 0 0 0 4.5 11a3 3 0 0 0 1.2 4.7A3 3 0 0 0 9.5 20a2.5 2.5 0 0 0 2.5-2.5v-11a3 3 0 0 0-2.5-3Z',
     'M14.5 3.5A3 3 0 0 1 17.4 6a3 3 0 0 1 2.1 5 3 3 0 0 1-1.2 4.7 3 3 0 0 1-3.8 4.3A2.5 2.5 0 0 1 12 17.5', 'M8 9.5a2 2 0 0 1 2 1.5M16 9.5a2 2 0 0 0-2 1.5M9 15a2 2 0 0 1 3-1M15 15a2 2 0 0 0-3-1'],
   tasks: ['M4 4h16v16H4Z', 'm8 12 3 3 5-6'],
-  notes: ['M6 3h9l4 4v14H6Z', 'M14 3v5h5M9 12h7M9 16h5']
+  notes: ['M6 3h9l4 4v14H6Z', 'M14 3v5h5M9 12h7M9 16h5'],
+  apps: ['M4 4h7v7H4Z', 'M13 4h7v7h-7Z', 'M4 13h7v7H4Z', 'M16.5 13v7M13 16.5h7'],
+  more: ['M5 12h.01M12 12h.01M19 12h.01']
 };
+// The narrowest a tab may be before the row runs out of room. Tabs that don't fit go into a
+// More tab at the end (the open view always keeps a place), so adding views never squeezes
+// the labels or the content below.
+const TAB_MIN = 46;
 
 export const views = new Map(); // id -> the view's controller once loaded
 let view = 'chats';
@@ -29,20 +36,49 @@ function allowedViews() {
   return [{ id: 'chats', label: 'Chats' }, ...(state.me?.views || []).filter((v) => VIEW_MODULES[v.id] && access[v.id] && access[v.id] !== 'none')];
 }
 
+let tabList = [];
+const moreTab = h('button', { type: 'button', class: 'more-tab', 'aria-haspopup': 'menu', 'data-label': 'More', title: 'More views', onclick: () => openMore() },
+  svgIcon(VIEW_ICONS.more), h('span', {}, 'More'), h('span', { class: 'tab-badge', hidden: true }));
+
 export function renderViewTabs() {
-  const list = allowedViews();
-  tabs.hidden = list.length < 2;
-  tabs.replaceChildren(...list.map((v) => h('button', {
+  tabList = allowedViews();
+  tabs.hidden = tabList.length < 2;
+  tabs.replaceChildren(...tabList.map((v) => h('button', {
     type: 'button', role: 'tab', 'aria-selected': String(v.id === view), tabindex: v.id === view ? 0 : -1,
     'data-tab': v.id, 'data-label': v.label, onclick: () => showView(v.id)
-  }, svgIcon(VIEW_ICONS[v.id] || VIEW_ICONS.notes), h('span', {}, v.label), h('span', { class: 'tab-badge', hidden: true }))));
-  if (!list.some((v) => v.id === view)) showView('chats', { force: true }); // access was taken away
+  }, svgIcon(VIEW_ICONS[v.id] || VIEW_ICONS.notes), h('span', {}, v.label), h('span', { class: 'tab-badge', hidden: true }))), moreTab);
+  if (!tabList.some((v) => v.id === view)) showView('chats', { force: true }); // access was taken away
+  fitTabs();
   paintBadges();
+}
+
+// Shows as many tabs as fit at TAB_MIN, and the rest under More.
+function fitTabs() {
+  const width = tabs.clientWidth;
+  if (!width) return; // hidden (a closed drawer); the observer fits them once there's room
+  const gap = parseFloat(getComputedStyle(tabs).columnGap) || 0;
+  const room = Math.max(1, Math.floor((width + gap) / (TAB_MIN + gap)));
+  const buttons = [...tabs.querySelectorAll('[data-tab]')];
+  let shown = buttons.length <= room ? buttons : buttons.slice(0, room - 1);
+  const active = buttons.find((b) => b.dataset.tab === view);
+  if (active && !shown.includes(active)) shown = [...shown.slice(0, -1), active];
+  for (const b of buttons) b.hidden = !shown.includes(b);
+  moreTab.hidden = shown.length === buttons.length;
+  moreTab.setAttribute('aria-selected', 'false');
+}
+new ResizeObserver(() => fitTabs()).observe(tabs);
+
+function openMore() {
+  const hiddenTabs = [...tabs.querySelectorAll('[data-tab][hidden]')];
+  openMenu(moreTab, hiddenTabs.map((b) => {
+    const n = badges[b.dataset.tab];
+    return { label: n ? `${b.dataset.label} (${n})` : b.dataset.label, action: () => showView(b.dataset.tab) };
+  }));
 }
 
 tabs.addEventListener('keydown', (e) => {
   if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-  const all = [...tabs.children];
+  const all = [...tabs.children].filter((b) => !b.hidden);
   const next = all[(all.indexOf(document.activeElement) + (e.key === 'ArrowRight' ? 1 : all.length - 1)) % all.length];
   next?.focus();
   next?.click();
@@ -62,7 +98,11 @@ export async function refreshBadges() {
 }
 
 function paintBadges() {
-  for (const b of tabs.children) {
+  const tucked = [...tabs.querySelectorAll('[data-tab][hidden]')].reduce((n, b) => n + (badges[b.dataset.tab] || 0), 0);
+  const more = moreTab.querySelector('.tab-badge');
+  more.hidden = !tucked;
+  more.textContent = tucked > 99 ? '99+' : String(tucked || '');
+  for (const b of tabs.querySelectorAll('[data-tab]')) {
     const n = badges[b.dataset.tab], badge = b.querySelector('.tab-badge');
     if (!badge) continue;
     badge.hidden = !n;
@@ -108,10 +148,12 @@ async function showView(id, { arg, force = false } = {}) {
   for (const el of document.querySelectorAll('[data-side], [data-view]')) {
     el.hidden = (el.dataset.side || el.dataset.view) !== id;
   }
-  for (const b of tabs.children) {
+  for (const b of tabs.querySelectorAll('[data-tab]')) {
     b.setAttribute('aria-selected', String(b.dataset.tab === id));
     b.tabIndex = b.dataset.tab === id ? 0 : -1;
   }
+  fitTabs();
+  paintBadges();
   if (leaving !== id) views.get(leaving)?.hide?.();
   views.get(id)?.show?.(arg);
   if (id === 'chats') history.replaceState(null, '', location.pathname);
@@ -156,6 +198,20 @@ export async function goToChat(id) {
   await showView('chats');
   if (view === 'chats' && state.chats.some((c) => c.id === id)) openChat(id);
 }
+
+// Links to a place in Nova, such as nova://apps/<name> in a chat reply or a brain note
+// (lib/markdown.js turns those into #apps/<name>/run with data-route), open it here rather
+// than reloading the page. A modified click still opens a new tab.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('a[data-route]');
+  if (!a || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+  const route = routeFromHash(a.getAttribute('href'));
+  if (!route) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (!allowedViews().some((v) => v.id === route.id)) { sidebar?.notify?.(`This profile can't open ${route.id === 'apps' ? 'apps' : 'that'}. An admin can give it access in Settings, under Profiles.`); return; }
+  goTo(route);
+}, true);
 
 // The Nova mark in the header goes back to Chats from any view, keeping the open chat.
 $('brandBtn').addEventListener('click', () => showView('chats'));

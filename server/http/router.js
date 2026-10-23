@@ -9,7 +9,7 @@ export function createRouter() {
   const routes = [];
   const add = (method) => (path, handler) => { routes.push({ method, path, handler }); };
   return {
-    get: add('GET'), post: add('POST'), put: add('PUT'), patch: add('PATCH'), delete: add('DELETE'),
+    get: add('GET'), post: add('POST'), put: add('PUT'), patch: add('PATCH'), delete: add('DELETE'), options: add('OPTIONS'),
 
     // Runs the first route that matches. Returns false when none does.
     async handle(ctx) {

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { once } from 'node:events';
+import { pipeline } from 'node:stream/promises';
 
 // A JSON file's contents, or null if it's missing or unreadable.
 export const readJsonFile = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
@@ -16,9 +17,11 @@ export const disposition = (name, inline = false) =>
   `${inline ? 'inline' : 'attachment'}; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 
 // A response writer that streams a file, or a byte range of it ({ start, end }). It settles
-// when the file is sent or the client goes away.
-export const streamFile = (file, range) => (res) => new Promise((resolve, reject) =>
-  fs.createReadStream(file, range).on('error', reject).pipe(res).on('finish', resolve).on('close', resolve));
+// when the file is sent or the client goes away. pipeline closes the file either way: a plain
+// pipe() leaves it open when the client aborts (a video player seeking, an app's frame
+// reloading), and on Windows an open file blocks renaming or deleting its folder.
+export const streamFile = (file, range) => (res) => pipeline(fs.createReadStream(file, range), res)
+  .catch((err) => { if (err.code !== 'ERR_STREAM_PREMATURE_CLOSE') throw err; });
 
 // Windows refuses to rename or replace a file while another program briefly holds it.
 export const isLocked = (err) => ['EPERM', 'EBUSY', 'EACCES'].includes(err?.code);
