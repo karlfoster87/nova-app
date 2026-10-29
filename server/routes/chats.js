@@ -4,13 +4,14 @@
 import { hub } from '../core/hub.js';
 import { UserError } from '../core/errors.js';
 import { readJson, sendStream } from '../http/respond.js';
-import { listChats, updateChat, deleteChat } from '../chat/chats.js';
+import { listChats, updateChat, deleteChat, chatSummary } from '../chat/chats.js';
 import { listCategories, createCategory, renameCategory, moveCategory, deleteCategory } from '../chat/categories.js';
 import { saveUpload, discardUpload, openUpload } from '../chat/uploads.js';
 import { commandsFor } from '../chat/commands.js';
 
 const UUID = '([0-9a-f-]{36})';
 const CHAT = new RegExp(`^/api/chats/${UUID}$`);
+const CHAT_SUMMARY = new RegExp(`^/api/chats/${UUID}/summary$`);
 const CATEGORY = new RegExp(`^/api/categories/${UUID}$`);
 const CATEGORY_MOVE = new RegExp(`^/api/categories/${UUID}/move$`);
 const UPLOAD = new RegExp(`^/api/uploads/${UUID}$`);
@@ -19,6 +20,7 @@ export default function chatRoutes(api) {
   api.get('/api/chats', ({ profile }) => listChats(profile));
   api.patch(CHAT, async ({ req, profile, params: [id] }) => { updateChat(profile, id, await readJson(req)); return { ok: true }; });
   api.delete(CHAT, ({ profile, params: [id] }) => { deleteChat(profile, id); return { ok: true }; });
+  api.get(CHAT_SUMMARY, ({ profile, params: [id] }) => chatSummary(profile, id));
 
   // Slash commands for the composer's suggestions, from the open chat when chatId names one.
   api.get('/api/commands', async ({ url, profile }) => {

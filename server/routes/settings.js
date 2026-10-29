@@ -30,10 +30,10 @@ function checkBrainDir(input) {
 }
 
 export default function settingsRoutes(api) {
-  api.get('/api/settings', () => ({ ...publicMeta(), idleMinutes: config.chats.idleMinutes, showThinking: config.models.showThinking,
+  api.get('/api/settings', () => ({ ...publicMeta(), idleMinutes: config.chats.idleMinutes, coldResume: config.chats.coldResume, showThinking: config.models.showThinking,
     brainDir: config.paths.brainDir, canRestart: SUPERVISED, claudeDir: CLAUDE_DIR, signin: signinStatus() }));
 
-  // Models, effort, thinking and the idle timeout. Anything invalid is left as it was.
+  // Models, effort, thinking, the idle timeout and how long chats reopen. Anything invalid is left as it was.
   api.post('/api/settings', async ({ req }) => {
     const body = await readJson(req);
     const models = {};
@@ -46,6 +46,7 @@ export default function settingsRoutes(api) {
     if (thinkingChanged) refreshAllRunners(); // chats pick it up when their process next starts
     const idle = Number(body.idleMinutes);
     if (Number.isInteger(idle) && idle >= 5 && idle <= 24 * 60) saveConfig('chats', { idleMinutes: idle });
+    if (['fresh', 'full', 'ask'].includes(body.coldResume)) saveConfig('chats', { coldResume: body.coldResume });
     meta.broadcast();
     return { ok: true };
   });

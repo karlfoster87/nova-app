@@ -110,6 +110,11 @@ details.tool.error .tool-status { color: var(--bad); }
 .turn-meta::before { content: '// '; color: var(--line-bright); }
 .notice { font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line-bright); padding-top: 6px; margin: 14px 0; }
 .notice.error { color: var(--bad); border-color: var(--bad); }
+/* Where a long chat carried on in a fresh session from Nova's summary of it */
+.continued { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; font-size: 12px; color: var(--muted); margin: 18px 0; }
+.continued::before, .continued::after { content: ''; flex: 1 1 24px; border-top: 1px dashed var(--line-bright); }
+.continued button { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.continued button:hover { color: var(--bright); }
 
 /* Permission and question cards */
 .ask {
@@ -223,4 +228,7 @@ a.file-name:hover { text-decoration: underline; color: var(--accent); }
 .confirm-dialog { width: min(440px, 92vw); }
 .small-dialog > .stack:last-child { margin-bottom: 0; } /* the gap between stacked Settings forms isn't wanted here */
 .confirm-dialog h2 { margin-bottom: 0; }
+.info-dialog.wide { width: min(640px, 94vw); }
+.summary-meta { margin: 0; font-size: 12px; }
+.summary-text { max-height: min(60vh, 520px); overflow-y: auto; padding-right: 6px; }
 .confirm-message { margin: 0; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }

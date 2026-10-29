@@ -15,6 +15,7 @@ const state = {
 let session = null;
 let usageTimer = null;
 let soonTimer = null;
+const highUsage = { listeners: [], last: 0 }; // runner.js hands off long chats when the plan is nearly used
 
 async function start() {
   stopSession();
@@ -55,7 +56,27 @@ async function refreshUsage() {
       subscription: u.subscription_type
     };
     broadcast();
+    noteUsage(u.rate_limits);
   } catch { /* keep last snapshot */ }
+}
+
+// The fullest plan window, as a percentage: the 5-hour and weekly windows and any per-model ones.
+// Extra usage is paid credit, not a limit, so it doesn't count.
+function fullest(limits) {
+  if (!limits) return 0;
+  const windows = [...Object.entries(limits).filter(([k, w]) => k !== 'extra_usage' && w && !Array.isArray(w)).map(([, w]) => w),
+    ...(Array.isArray(limits.model_scoped) ? limits.model_scoped : [])];
+  return Math.max(0, ...windows.map((w) => Number(w.utilization) || 0));
+}
+
+// Past chats.handoffAtUsage, long chats write their handoffs (at most every ten minutes, as the
+// usage call runs every two).
+function noteUsage(limits) {
+  const at = Number(config.chats.handoffAtUsage);
+  if (!(at > 0) || fullest(limits) < at || Date.now() - highUsage.last < 10 * 60 * 1000) return;
+  highUsage.last = Date.now();
+  console.log(`Plan usage passed ${at}%, so long chats are writing their handoffs now.`);
+  for (const fn of highUsage.listeners) { try { fn(); } catch (err) { console.error('High-usage handoff failed:', err); } }
 }
 
 function broadcast() { hub.toAll({ t: 'meta', meta: publicMeta() }); }
@@ -86,7 +107,8 @@ export function publicMeta() {
     authError: state.authError,
     usage: state.usage,
     defaultEffort: config.models.defaultEffort,
-    defaultModel: config.models.defaultModel
+    defaultModel: config.models.defaultModel,
+    coldResume: config.chats.coldResume
   };
 }
 
@@ -95,6 +117,7 @@ export const meta = {
   restart: start,
   stop() { clearInterval(usageTimer); clearTimeout(soonTimer); stopSession(); },
   broadcast,
+  onHighUsage(fn) { highUsage.listeners.push(fn); },
   refreshUsageSoon() {
     clearTimeout(soonTimer);
     soonTimer = setTimeout(refreshUsage, 3000);

@@ -78,11 +78,12 @@ function resultText(content) {
 }
 
 export class Transcript {
-  constructor(chatId, { onAnswer, onEdit, onChange, where, loading }) {
+  constructor(chatId, { onAnswer, onEdit, onLoadFull, onChange, where, loading }) {
     this.chatId = chatId;
     this.where = where; // category name shown on an empty new chat
     this.onAnswer = onAnswer;
     this.onEdit = onEdit; // (uuid, text): send an edited message again
+    this.onLoadFull = onLoadFull; // the chat continued from a summary: load its full history instead
     this.onChange = onChange || (() => {});
     this.el = h('div', { class: 'transcript-inner' });
     this.tools = new Map();   // tool_use_id -> { el, status, body, sub, name, input, done, task }
@@ -190,11 +191,24 @@ export class Transcript {
     this.onChange();
   }
 
+  // Where a long chat carried on in a fresh session from Nova's summary of it (server
+  // chat/handoff.js). Only the latest can load the full history instead, so earlier ones lose
+  // the link. Everything above stays readable.
+  addContinued(canLoad = true) {
+    for (const old of this.el.querySelectorAll('.continued-load')) old.remove();
+    this.turn = null;
+    const load = canLoad && this.onLoadFull ? h('span', { class: 'continued-load' }, '· ',
+      h('button', { type: 'button', onclick: () => this.onLoadFull() }, 'Load full history')) : null;
+    this.append(h('div', { class: 'continued', role: 'note' }, h('span', {}, 'Continued from summary'), load));
+  }
+
   // An edited message was sent again: it and everything after it leave the transcript, and
-  // the new version arrives as an ordinary user_echo.
+  // the new version arrives as an ordinary user_echo. A marker just above it goes too, as the
+  // new version brings its own.
   rewind(uuid) {
     const from = [...this.el.querySelectorAll('.turn-user')].find((t) => t.dataset.uuid === uuid);
     if (!from) return;
+    if (from.previousElementSibling?.classList.contains('continued')) from.previousElementSibling.remove();
     while (from.nextSibling) from.nextSibling.remove();
     from.remove();
     for (const [id, t] of this.tools) if (!t.el.isConnected) this.tools.delete(id);
@@ -445,12 +459,14 @@ export class Transcript {
     if (!messages.length) { this.showEmpty(); return; }
     for (const m of messages) {
       const content = m.message?.content;
-      if (m.type === 'assistant') this.handleAssistant(m, m.parent_tool_use_id);
+      if (m.type === 'nova_continued') this.addContinued(m.canLoad);
+      else if (m.type === 'assistant') this.handleAssistant(m, m.parent_tool_use_id);
       else if (m.type === 'user' && !m.parent_tool_use_id) {
         if (typeof content === 'string') this.addUser(content, [], whenOf(m), m.uuid);
         else if (Array.isArray(content)) {
-          // The spoken-replies note (server/chat/chats.js VOICE_NOTE) is for Claude, not the reader.
-          const texts = content.filter((c) => c.type === 'text' && !c.text.startsWith('<voice-reply>')).map((c) => c.text);
+          // The spoken-replies note (server/chat/chats.js VOICE_NOTE) is for Claude, not the reader, and
+          // so is a fresh session's handoff, shown as the marker above instead.
+          const texts = content.filter((c) => c.type === 'text' && !c.text.startsWith('<voice-reply>') && !c.text.startsWith('<previous-session>')).map((c) => c.text);
           const manifest = texts.find((t) => t.startsWith('<attachments>'));
           const files = manifest ? parseManifest(manifest) : [];
           let text = texts.filter((t) => t !== manifest).join('\n').trim();

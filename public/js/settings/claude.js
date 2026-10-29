@@ -19,6 +19,7 @@ export async function loadClaude() {
   renderSignin(s);
   claudeForm.defaultEffort.value = s.defaultEffort;
   claudeForm.idleMinutes.value = s.idleMinutes;
+  claudeForm.coldResume.value = s.coldResume || 'fresh';
   claudeForm.showThinking.checked = s.showThinking !== false;
   brainForm.brainDir.value = s.brainDir;
   brainForm.querySelector('button').disabled = !s.canRestart;
@@ -95,6 +96,7 @@ claudeForm.addEventListener('submit', (e) => {
     await api('POST', '/api/settings', {
       defaultEffort: f.defaultEffort.value,
       idleMinutes: Number(f.idleMinutes.value),
+      coldResume: f.coldResume.value,
       showThinking: f.showThinking.checked,
       hiddenModels: all.filter((i) => !i.checked).map((i) => i.value)
     });

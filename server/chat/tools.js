@@ -14,7 +14,7 @@ import { can } from '../accounts/access.js';
 import { listTasks, createTask, updateTask, moveTask, deleteTask } from '../views/tasks.js';
 import { listNotes, createNote, updateNote, moveNote, deleteNote, isSharedNote } from '../views/notes.js';
 
-export const READ_TOOLS = ['mcp__nova__list_tasks', 'mcp__nova__list_notes'];
+export const READ_TOOLS = ['mcp__nova__list_tasks', 'mcp__nova__list_notes', 'mcp__nova__apps_guide'];
 const COLORS = ['yellow', 'green', 'blue', 'pink', 'purple', 'grey'];
 
 // The server's own date, for when Claude doesn't say. Nova runs at home, so it's usually the
@@ -201,6 +201,40 @@ export function describeCall(profile, toolName, input = {}) {
   }
 }
 
+// ---- Apps -----------------------------------------------------------------------
+// How Nova's web apps work, for profiles with Apps edit access. Until v0.8 this was part of every
+// chat's system prompt; as a tool it's only read by chats that build or change an app.
+const APPS_GUIDE = 'Each app is one folder in the Nova apps folder, ' +
+  'whose name is its address: lower-case letters, numbers and single hyphens (like budget-planner). It runs in the browser at ' +
+  '/apps/<name>/, from index.html, inside a sandbox with its own origin, so use relative paths for its files (style.css, ' +
+  'not /style.css), keep everything the app needs in its folder or load libraries from https CDNs, and don\'t rely on ' +
+  'cookies or Nova\'s API. Put a short app.json in the folder: {"name": "Title", "description": "One line"}. If the app needs ' +
+  'server-side work, write backend.js, an ES module run by Nova\'s own Node.js (no packages to install): its default export ' +
+  'handles each request the app makes to the relative path api/<path>, as async function (req) with req = {method, path, ' +
+  'query, headers, body (text), user, app, dataDir}, and returns {status: 200, json: value}, or {status, body: "text", headers: ' +
+  '{"content-type": "text/html"}}. It runs in a fresh process for every request, so keep state in files under req.dataDir (the ' +
+  'data folder beside it), the only place it may write; it may read only its own app folder, can\'t start other programs, and ' +
+  'has a time limit. Use Node\'s built-in modules (node:fs, node:crypto, fetch), and put helper modules in a backend folder, ' +
+  'which, like backend.js and data, is never sent to the browser. A backend only runs after an admin turns it on in the Apps ' +
+  'view, so say so when you write one.\n\n' +
+  'An app can also read and save files in the brain folder, such as a YAML or Markdown file Nova keeps there, so the app ' +
+  'becomes a friendly editor for it: list each file or folder (ending in /) in app.json as "brain": {"Inventory/items.yaml": ' +
+  '"write", "Recipes/": "read"}, with paths from the brain folder\'s root; "write" also allows creating and deleting there. ' +
+  'From the app\'s page, fetch(\'brain/Inventory/items.yaml\') returns the file (its ETag header is the version), a folder ' +
+  'comes back as JSON {entries: [{name, path, type, size}]}, fetch(\'brain/<path>\', {method: \'PUT\', body: text, headers: ' +
+  '{\'If-Match\': etag}}) saves it (409 if it changed meanwhile, so reload and merge), and method DELETE moves a file to the ' +
+  'brain\'s trash. A backend.js gets the same paths as req.brain = {"Inventory/items.yaml": {path: <absolute path>, access}}, ' +
+  'for reading and writing with node:fs (only those paths; Nova commits what it changes after each request). ' +
+  'Keep the file\'s existing structure and comments when saving, since Nova and the user read it too. These ' +
+  'paths only work after an admin allows them in the Apps view, so say so, and point at the exact paths.\n\n' +
+  'To give the user a link that opens an app in Nova, write a markdown link to nova://apps/<name>, like [Open Budget planner](nova://apps/budget-planner).';
+
+const appTools = () => [
+  tool('apps_guide', 'How Nova web apps work: folder layout, app.json, backend.js, reading and saving brain files, and links ' +
+    'that open an app. Read it before creating or changing an app in the Nova apps folder, or linking to one.', {},
+  async () => reply(APPS_GUIDE), { annotations: { readOnlyHint: true }, searchHint: 'nova web app build backend' })
+];
+
 // The tools a profile gets: none for a view it can't see, only the list tool for one it can
 // only view. Access is checked again on every call, so a change while the chat runs still holds.
 export const novaTools = (profile) => [
@@ -208,14 +242,16 @@ export const novaTools = (profile) => [
   ...(can(profile, 'notes', 'read') ? noteTools(profile) : [])
 ];
 
-// The nova MCP server for one chat, or null when the profile can't see tasks or notes.
-export function novaServer(profile) {
-  const tools = novaTools(profile);
+// The nova MCP server for one chat, or null when it would have no tools. apps: the profile can
+// build apps (runner.js), so it gets the apps guide.
+export function novaServer(profile, apps = false) {
+  const tools = [...novaTools(profile), ...(apps ? appTools() : [])];
   if (!tools.length) return null;
   return createSdkMcpServer({
     name: 'nova', version: '1.0.0', tools,
     instructions: 'These tools read and change the user\'s own tasks and sticky notes in Nova, the app this chat runs in. ' +
       'Use them when the user talks about their tasks, to-do list, plans for a day or week, or sticky notes. ' +
-      'List first to get ids. Tasks and notes are not files in the brain folder.'
+      'List first to get ids. Tasks and notes are not files in the brain folder.' +
+      (apps ? ' apps_guide explains how to build the user\'s web apps in Nova.' : '')
   });
 }

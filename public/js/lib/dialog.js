@@ -47,6 +47,34 @@ export async function confirmDialog({ title, message = '', confirm, cancel = 'Ca
 }
 
 /**
+ * Offers a choice of actions. Resolves with the chosen one's value, or null if cancelled.
+ * @param {{ title: string, message?: string, choices: { label: string, value: string }[], cancel?: string }} o
+ * The first choice is the main one and has the focus.
+ */
+export async function choiceDialog({ title, message = '', choices, cancel = 'Cancel' }) {
+  const buttons = choices.map((c, i) => h('button', { type: 'button', class: i ? 'text-btn' : 'send-btn', onclick: () => dialog.finish(c.value) }, c.label));
+  const heading = h('h2', { id: `choice-${Math.random().toString(36).slice(2)}` }, title);
+  const dialog = h('dialog', { class: 'settings small-dialog confirm-dialog', role: 'alertdialog', 'aria-labelledby': heading.id },
+    h('div', { class: 'stack' }, heading,
+      message ? h('p', { class: 'confirm-message' }, message) : null,
+      h('div', { class: 'row choice-row' }, h('button', { type: 'button', class: 'text-btn', onclick: () => dialog.finish(null) }, cancel),
+        h('span', { class: 'spacer' }), ...buttons.slice(1).reverse(), buttons[0])));
+  return show(dialog, buttons[0]);
+}
+
+/**
+ * Shows something to read, with a Close button.
+ * @param {{ title: string, body: Node, wide?: boolean }} o
+ */
+export async function infoDialog({ title, body, wide = false }) {
+  const close = h('button', { type: 'button', class: 'send-btn', onclick: () => dialog.finish(true) }, 'Close');
+  const heading = h('h2', { id: `info-${Math.random().toString(36).slice(2)}` }, title);
+  const dialog = h('dialog', { class: `settings small-dialog info-dialog${wide ? ' wide' : ''}`, 'aria-labelledby': heading.id },
+    h('div', { class: 'stack' }, heading, body, h('div', { class: 'row' }, h('span', { class: 'spacer' }), close)));
+  await show(dialog, close);
+}
+
+/**
  * Asks for one value. Resolves with it, or null if cancelled.
  * @param {{ title: string, label: string, value?: string, type?: string, multiline?: boolean,
  *           submit?: string, maxLength?: number }} o

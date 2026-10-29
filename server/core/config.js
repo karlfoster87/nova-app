@@ -45,7 +45,16 @@ const defaults = {
     showThinking: true    // stream a summary of Claude's thinking (display: 'summarized'); false leaves it out
   },
   chats: {
-    idleMinutes: 30       // close idle chat processes after this long
+    idleMinutes: 30,      // close idle chat processes after this long
+    // Long chats and the prompt cache (chat/handoff.js). Claude keeps a chat's history cached for an
+    // hour after its last use; after that, resuming it re-sends the whole history at full price.
+    coldResume: 'fresh',  // a long chat reopened after the cache expired: 'fresh' = continue from its handoff in a new session, 'full' = resume everything, 'ask'
+    handoffMinutes: 50,   // a long chat idle this long writes its handoff while the cache is still warm (under 60); 0 = never
+    handoffMinTokens: 30000, // chats smaller than this resume in full: cheap enough either way
+    handoffEffort: 'low', // effort for the hidden handoff turn; null = the chat's own
+    handoffAtUsage: 85,   // when a plan window passes this percentage, long chats write their handoff at once; 0 = never
+    autoCompactPercent: 60, // Claude Code compacts a chat's context at this fill level, usually while it's still cached; 0 = its default
+    maxToolResultChars: 20000 // longer Bash or Read output is cut to this, with a note to read a narrower part; 0 = never
   },
   updates: {
     checkHours: 24,       // how often to look for a new Agent SDK on npm and a new Nova on GitHub; 0 = never. Installing always needs an admin.
@@ -167,6 +176,10 @@ export function saveConfig(section, patch) {
 export function agentEnv() {
   const env = { ...process.env };
   for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN']) delete env[k];
+  // Compacting earlier, while a chat is in use and its history cached, costs far less than
+  // compacting a full context that has gone cold.
+  const pct = Number(config.chats.autoCompactPercent);
+  if (pct > 0 && pct < 100) env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = String(pct);
   return env;
 }
 

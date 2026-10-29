@@ -39,7 +39,7 @@ q.setAccess.run(JSON.stringify({ brain: 'none' }), 'smoke-c'); // smoke-b keeps 
 // unrelated one, which must not be copied.
 const OLD_CHAT = crypto.randomUUID(), STRANGER = crypto.randomUUID();
 db.prepare("INSERT INTO chats (id, profile, title, created_at, updated_at, brain) VALUES (?, 'smoke-a', 'old', 0, 0, 'smoke-other-brain')").run(OLD_CHAT);
-const toolResults = await novaToolChecks();
+const toolResults = [...await novaToolChecks(), ...await handoffChecks()];
 db.close();
 const oldClaude = path.join(tmp, 'old-claude');
 const oldProject = path.join(oldClaude, 'projects', 'C--old-brain');
@@ -220,6 +220,15 @@ async function run() {
   wsA.send(JSON.stringify({ t: 'edit', chatId: id, uuid: crypto.randomUUID(), text: 'smoke test, should never be sent' }));
   const badEdit = await next(wsA, (m) => m.t === 'error' && m.chatId === id).catch(() => null);
   check(!!badEdit && !wsA.received.some((m) => m.t === 'rewound' || m.t === 'user_echo'), 'editing a message that isn\'t in the chat is refused and rewinds nothing');
+  wsA.send(JSON.stringify({ t: 'full_history', chatId: id }));
+  const noPast = await next(wsA, (m) => m.t === 'error' && m.chatId === id && m !== badEdit).catch(() => null);
+  check(noPast?.message === 'This chat has no earlier history to load.' && !wsA.received.some((m) => m.t === 'rewound'),
+    'loading the full history of a chat that never continued from a summary is refused');
+  check(Object.hasOwn((await http('GET', '/api/chats', { cookie: a })).data?.find((c) => c.id === id) || {}, 'fresh_after'),
+    'the chat list says when a chat would continue from its summary');
+  const noSummary = await http('GET', `/api/chats/${id}/summary`, { cookie: a });
+  check(noSummary.status === 404 && /no summary yet/.test(noSummary.data?.error || ''), 'a chat without a summary says so');
+  check((await http('GET', `/api/chats/${id}/summary`, { cookie: b })).status === 404, 'another profile can\'t read a chat\'s summary');
 
   // Categories reorder per profile
   const cats = [];
@@ -242,7 +251,7 @@ async function run() {
   check(!(await http('GET', '/api/chats', { cookie: b })).data?.some((c) => c.id === id), 'other profile doesn\'t see the chat');
   check((await http('PATCH', `/api/chats/${id}`, { cookie: b, body: { categoryId: null } })).status === 404, 'other profile can\'t change the chat');
   check((await http('DELETE', `/api/chats/${id}`, { cookie: b })).status === 404, 'other profile can\'t delete the chat');
-  for (const [t, extra] of [['open', {}], ['send', { text: 'smoke test, should never be sent' }], ['edit', { uuid: crypto.randomUUID(), text: 'smoke test, should never be sent' }], ['mode', { mode: 'plan' }]]) {
+  for (const [t, extra] of [['open', {}], ['send', { text: 'smoke test, should never be sent' }], ['edit', { uuid: crypto.randomUUID(), text: 'smoke test, should never be sent' }], ['full_history', {}], ['mode', { mode: 'plan' }]]) {
     wsB.send(JSON.stringify({ t, chatId: id, ...extra }));
     const r = await next(wsB, (m) => m.t === 'error').catch(() => null);
     check(r?.message === 'Chat not found.', `other profile's WebSocket "${t}" is refused`);
@@ -1209,7 +1218,7 @@ async function novaToolChecks() {
     const { idleSession } = await import('../server/claude/session.js');
     const { sessionBase } = await import('../server/chat/runner.js');
     const { novaServer, READ_TOOLS } = await import('../server/chat/tools.js');
-    const s = idleSession({ ...sessionBase('smoke-a'), mcpServers: { nova: novaServer('smoke-a') }, allowedTools: READ_TOOLS });
+    const s = idleSession({ ...sessionBase('smoke-a'), mcpServers: { nova: novaServer('smoke-a', true) }, allowedTools: READ_TOOLS });
     try {
       await s.query.initializationResult();
       let nova = null;
@@ -1217,13 +1226,59 @@ async function novaToolChecks() {
         nova = (await s.query.mcpServerStatus()).find((x) => x.name === 'nova');
         if (nova?.status !== 'connected') await new Promise((r) => setTimeout(r, 1000));
       }
-      t(nova?.status === 'connected' && nova.tools?.length === 10, 'Claude Code connects the nova tool server with all ten tools');
+      t(nova?.status === 'connected' && nova.tools?.length === 11 && nova.tools.some((x) => x.name === 'apps_guide'),
+        'Claude Code connects the nova tool server with all ten tools, and the apps guide for a profile that builds apps');
     } finally { s.close(); }
   } catch (err) {
     t(false, `the task and note tools threw: ${err.message}`);
   } finally {
     deleteProfileRows('smoke-tools');
     deleteProfileRows('smoke-tools-view');
+  }
+  return out;
+}
+
+// Long chats and the prompt cache (server/chat/handoff.js): when a chat continues from its
+// summary, what its history hides, and what Haiku is given. Driving a real handoff needs a
+// sign-in and quota, so these check the decisions on their own, in this process.
+async function handoffChecks() {
+  const out = [];
+  const t = (ok, label) => out.push([!!ok, label]);
+  try {
+    const h = await import('../server/chat/handoff.js');
+    const now = Date.now(), hour = 60 * 60 * 1000;
+    const row = (o) => ({ id: crypto.randomUUID(), title: 'Long chat', updated_at: now - 3 * hour, active_at: now - 3 * hour, context_tokens: 80000, ...o });
+    t(h.startsFresh(row()), 'a long chat idle for over an hour continues from its summary');
+    t(!h.startsFresh(row(), 'full'), 'unless the user chose its full history');
+    t(!h.startsFresh(row({ active_at: now - 20 * 60 * 1000 })), 'a long chat used in the last hour resumes in full (its history is still cached)');
+    t(!h.startsFresh(row({ handoff_at: now - 20 * 60 * 1000 })), 'a recent handoff counts as using the cache');
+    t(!h.startsFresh(row({ context_tokens: 5000 })), 'a short chat resumes in full');
+    t(!h.startsFresh(row({ title: null })), 'a chat never sent to starts normally');
+    t(h.freshAfter(row()) === now - 2 * hour && h.freshAfter(row({ context_tokens: 5000 })) === null, 'the chat list says when a long chat would continue fresh');
+    t(h.currentHandoff(row({ handoff: 'x', handoff_at: now - 2 * hour })) === 'x' && !h.currentHandoff(row({ handoff: 'x', handoff_at: now - 4 * hour })),
+      'a handoff only counts if it is newer than the chat\'s last reply');
+    const r = row({ session_id: 'b', past_sessions: '["a"]', handoff_cut: JSON.stringify({ session: 'b', at: 'u1' }) });
+    t(h.sessionOf(r) === 'b' && h.pastSessions(r).join() === 'a' && h.cutFor(r) === 'u1' && h.cutFor({ ...r, session_id: 'c' }) === null,
+      'a chat knows its current and past sessions, and only resumes at its own session\'s cut');
+    const msg = (type, content, extra = {}) => ({ type, uuid: crypto.randomUUID(), message: { content }, parent_tool_use_id: null, ...extra });
+    const chain = [
+      msg('user', 'Plan the garden'),
+      msg('assistant', [{ type: 'text', text: 'Here is a plan.' }, { type: 'tool_use', name: 'Write', input: { file_path: 'garden/plan.md' } }]),
+      msg('user', [{ type: 'tool_result', content: 'SECRET TOOL OUTPUT' }]),
+      msg('user', h.HANDOFF_REQUEST),
+      msg('assistant', [{ type: 'text', text: 'HIDDEN SUMMARY' }]),
+      msg('user', 'Add tomatoes'),
+      msg('assistant', [{ type: 'text', text: 'Added.' }])
+    ];
+    const shown = h.withoutHandoffs(chain);
+    t(shown.length === 5 && !JSON.stringify(shown).includes('HIDDEN SUMMARY') && shown.at(-2).message.content === 'Add tomatoes',
+      'a handoff turn is left out of the history, and what follows it stays');
+    const text = h.reduceTranscript(shown);
+    t(text.includes('User: Plan the garden') && text.includes('Nova: Added.') && text.includes('Write ×1') && text.includes('garden/plan.md') &&
+      !text.includes('SECRET TOOL OUTPUT'), 'Haiku is given what was said, the tools and files, but no tool output');
+    t(h.continuedBlock('S').text.startsWith('<previous-session>') && h.isContinuedBlock(h.continuedBlock('S')), 'a fresh session\'s first message carries the summary in its own block');
+  } catch (err) {
+    t(false, `the handoff checks threw: ${err.message}`);
   }
   return out;
 }

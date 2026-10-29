@@ -12,6 +12,7 @@ import { meta, modelInfo } from '../claude/meta.js';
 import { rememberableRules, isApproved, remember, sessionRules, folderPaths, folderFor, addFolder } from './permissions.js';
 import { uploadsDir } from './uploads.js';
 import { novaServer, READ_TOOLS, describeCall } from './tools.js';
+import { HANDOFF_REQUEST, warmHandoff, usageTokens, bigChat, sessionOf, cutFor } from './handoff.js';
 import { can } from '../accounts/access.js';
 
 // Message types forwarded to the browser. Everything else stays server-side.
@@ -44,30 +45,35 @@ export function sessionBase(profile) {
 // folders, and the system prompt says how an app is laid out and how to link to one.
 const buildsApps = (profile) => can(profile, 'apps', 'edit');
 const appsFolder = () => { fs.mkdirSync(config.paths.appsDir, { recursive: true }); return config.paths.appsDir; };
-const appsNote = () => ' You can build web apps for the user in the Nova apps folder, ' + appsFolder() + '. Each app is one folder ' +
-  'whose name is its address: lower-case letters, numbers and single hyphens (like budget-planner). It runs in the browser at ' +
-  '/apps/<name>/, from index.html, inside a sandbox with its own origin, so use relative paths for its files (style.css, ' +
-  'not /style.css), keep everything the app needs in its folder or load libraries from https CDNs, and don\'t rely on ' +
-  'cookies or Nova\'s API. Put a short app.json in the folder: {"name": "Title", "description": "One line"}. If the app needs ' +
-  'server-side work, write backend.js, an ES module run by Nova\'s own Node.js (no packages to install): its default export ' +
-  'handles each request the app makes to the relative path api/<path>, as async function (req) with req = {method, path, ' +
-  'query, headers, body (text), user, app, dataDir}, and returns {status: 200, json: value}, or {status, body: "text", headers: ' +
-  '{"content-type": "text/html"}}. It runs in a fresh process for every request, so keep state in files under req.dataDir (the ' +
-  'data folder beside it), the only place it may write; it may read only its own app folder, can\'t start other programs, and ' +
-  'has a time limit. Use Node\'s built-in modules (node:fs, node:crypto, fetch), and put helper modules in a backend folder, ' +
-  'which, like backend.js and data, is never sent to the browser. A backend only runs after an admin turns it on in the Apps ' +
-  'view, so say so when you write one. ' +
-  'An app can also read and save files in the brain folder, such as a YAML or Markdown file Nova keeps there, so the app ' +
-  'becomes a friendly editor for it: list each file or folder (ending in /) in app.json as "brain": {"Inventory/items.yaml": ' +
-  '"write", "Recipes/": "read"}, with paths from the brain folder\'s root; "write" also allows creating and deleting there. ' +
-  'From the app\'s page, fetch(\'brain/Inventory/items.yaml\') returns the file (its ETag header is the version), a folder ' +
-  'comes back as JSON {entries: [{name, path, type, size}]}, fetch(\'brain/<path>\', {method: \'PUT\', body: text, headers: ' +
-  '{\'If-Match\': etag}}) saves it (409 if it changed meanwhile, so reload and merge), and method DELETE moves a file to the ' +
-  'brain\'s trash. A backend.js gets the same paths as req.brain = {"Inventory/items.yaml": {path: <absolute path>, access}}, ' +
-  'for reading and writing with node:fs (only those paths; Nova commits what it changes after each request). ' +
-  'Keep the file\'s existing structure and comments when saving, since Nova and the user read it too. These ' +
-  'paths only work after an admin allows them in the Apps view, so say so, and point at the exact paths. ' +
-  'To give the user a link that opens an app in Nova, write a markdown link to nova://apps/<name>, like [Open Budget planner](nova://apps/budget-planner).';
+// Only a pointer: the full guide is the apps_guide tool (tools.js), so the many chats that never
+// touch an app don't carry it in every session's prompt.
+const appsNote = () => ` You can build web apps for the user in the Nova apps folder, ${appsFolder()}. Before creating or ` +
+  'changing an app, or linking to one, call the apps_guide tool for how Nova apps work.';
+
+// Very long Bash or Read output fills the context for the rest of the chat, and every later turn
+// pays to read it again. Past chats.maxToolResultChars it's cut, keeping the start and the end.
+function cut(text, max) {
+  if (typeof text !== 'string' || text.length <= max) return text;
+  const head = Math.floor(max * 0.7), tail = max - head;
+  return `${text.slice(0, head)}\n\n[… ${text.length - max} characters cut by Nova to keep this chat small. ` +
+    `If you need the missing part, read a narrower range or filter the output (head, tail, grep, offset and limit). …]\n\n${text.slice(-tail)}`;
+}
+function trimOutput(name, out, max) {
+  if (name === 'Bash' && out && typeof out === 'object' && !out.isImage) {
+    const stdout = cut(out.stdout, max), stderr = cut(out.stderr, max);
+    return stdout === out.stdout && stderr === out.stderr ? null : { ...out, stdout, stderr };
+  }
+  if (name === 'Read' && out?.type === 'text' && typeof out.file?.content === 'string') {
+    const content = cut(out.file.content, max);
+    return content === out.file.content ? null : { ...out, file: { ...out.file, content } };
+  }
+  return null;
+}
+const trimHook = async (input) => {
+  const max = Number(config.chats.maxToolResultChars);
+  const updatedToolOutput = max > 0 ? trimOutput(input.tool_name, input.tool_response, max) : null;
+  return updatedToolOutput ? { hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput } } : {};
+};
 
 // Commands Claude Code says only make sense in its own terminal (exit, statusline and the like),
 // from the latest chat that started. The composer leaves them out.
@@ -93,9 +99,14 @@ class InputQueue {
 }
 
 class ChatRunner {
-  constructor({ id, profile, model, effort, mode, isNew, resumeAt }) {
-    Object.assign(this, { id, profile, model, effort, mode });
+  constructor({ id, session, profile, model, effort, mode, isNew, resumeAt, contextTokens }) {
+    // id: the Nova chat. session: the Claude Code session it continues, the same id until the
+    // chat first continues in a fresh session (handoff.js).
+    Object.assign(this, { id, session, profile, model, effort, mode });
     this.state = 'idle';
+    this.contextTokens = contextTokens ?? null; // the context's size at the last reply, for handoffs
+    this.hidden = null; // the handoff turn in progress: { resolve, parts, cancelled }
+    this.cutAt = resumeAt || null;
     this.pending = new Map(); // reqId -> resolve(PermissionResult)
     this.pendingInfo = new Map(); // reqId -> payload, replayed to tabs that reconnect
     this.tasks = new Map(); // task_id -> { started, progress } for sub-agents still running, replayed on open
@@ -116,10 +127,11 @@ class ChatRunner {
           (buildsApps(profile) ? appsNote() : '')
       },
       includePartialMessages: true,
-      canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts)
+      canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts),
+      hooks: { PostToolUse: [{ matcher: 'Bash|Read', hooks: [trimHook] }] }
     };
-    // The profile's tasks and sticky notes as tools (tools.js). Reading them never asks.
-    const nova = novaServer(profile);
+    // The profile's tasks and sticky notes, and the apps guide, as tools (tools.js). Reading them never asks.
+    const nova = novaServer(profile, buildsApps(profile));
     if (nova) Object.assign(options, { mcpServers: { nova }, allowedTools: READ_TOOLS });
     if (model) options.model = model;
     if (effort) options.effort = effort;
@@ -131,8 +143,9 @@ class ChatRunner {
       options.thinking = { type: 'adaptive', display: 'summarized' };
     }
     if (mode) options.permissionMode = mode;
-    if (isNew) options.sessionId = id; else options.resume = id;
-    // An edited message: carry on from the entry before it, leaving the rest off the chain.
+    if (isNew) options.sessionId = session; else options.resume = session;
+    // An edited message: carry on from the entry before it, leaving the rest off the chain. The
+    // same after a handoff, which leaves its hidden turn off the chain.
     if (resumeAt) options.resumeSessionAt = resumeAt;
 
     this.query = query({ prompt: this.input, options });
@@ -147,14 +160,20 @@ class ChatRunner {
   }
 
   // Would stopping the process now lose anything? Not while Claude is working, a prompt
-  // waits for an answer, or a sub-agent is still running.
-  get busy() { return this.state === 'running' || this.pending.size > 0 || this.tasks.size > 0; }
+  // waits for an answer, a sub-agent is still running, or a handoff is being written.
+  get busy() { return this.state === 'running' || this.pending.size > 0 || this.tasks.size > 0 || !!this.hidden; }
+
+  // Long enough that a fresh session from a handoff would cost much less than resuming it cold.
+  get wantsHandoff() { return config.chats.handoffMinutes > 0 && !this.handoffTried && bigChat(this.contextTokens || 0); }
 
   async loop() {
     try {
       for await (const msg of this.query) {
         this.lastActive = Date.now();
         if (msg.type === 'rate_limit_event') { meta.noteRateLimit(msg.rate_limit_info); continue; }
+        // The handoff turn is the server's own: no tab sees it, and it isn't the chat's activity.
+        if (this.hidden) { this.collectHidden(msg); continue; }
+        if (msg.type === 'assistant' && !msg.parent_tool_use_id && msg.message?.usage) this.contextTokens = usageTokens(msg.message.usage);
         if (msg.type === 'system') this.trackSystem(msg);
         // Claude can start a turn on its own, e.g. when a background agent reports back.
         if (this.state === 'idle' && !msg.parent_tool_use_id && (msg.type === 'assistant' || msg.type === 'stream_event')) {
@@ -163,13 +182,18 @@ class ChatRunner {
         if (FORWARD.has(msg.type)) this.emit({ t: 'sdk', msg });
         if (msg.type === 'result') {
           this.setState('idle');
+          q.chatActive.run(Date.now(), this.contextTokens, this.id);
           meta.refreshUsageSoon();
           if (this.stale) this.closeIfQuiet();
+          // The plan was nearly used up while this chat was working (see the end of this file).
+          else if (this.handoffWhenIdle && !this.busy) { this.handoffWhenIdle = false; this.startHandoff(); }
         }
       }
     } catch (err) {
-      this.emit({ t: 'error', message: `This chat's process stopped: ${err.message}` });
+      if (!this.hidden) this.emit({ t: 'error', message: `This chat's process stopped: ${err.message}` });
     } finally {
+      this.hidden?.resolve(null);
+      this.hidden = null;
       // A runner already replaced (new model, an edit) stays quiet, or tabs would see the
       // chat as closed while its new process works.
       const current = registry.get(this.id) === this;
@@ -220,13 +244,62 @@ class ChatRunner {
     this.lastActive = Date.now();
     this.setState('running');
     q.touchChat.run(Date.now(), this.model, this.effort, this.id);
+    // The chain now carries on from the cut, so later resumes follow it without one.
+    if (this.cutAt) { q.clearCut.run(this.id, this.session); this.cutAt = null; }
     this.input.push({
       type: 'user',
       message: { role: 'user', content },
       parent_tool_use_id: null,
-      session_id: this.id,
+      session_id: this.session,
       uuid
     });
+  }
+
+  // ---- Handoff ------------------------------------------------------------------
+  // One hidden turn asking Nova for a handoff (handoff.js), at low effort on the same model so
+  // the cached history is still read from the cache. Resolves with { text, uuid }, text null if
+  // it was cancelled or failed; uuid is the prompt's entry in the transcript, for the cut.
+  async handOff() {
+    const uuid = crypto.randomUUID();
+    const effort = config.chats.handoffEffort;
+    if (effort && effort !== this.effort) {
+      try { await this.query.applyFlagSettings({ effortLevel: effort }); } catch (err) { console.error('Couldn\'t lower the effort for a handoff:', err.message); }
+    }
+    if (this.handoffCancelled) return null; // the user came back meanwhile: nothing was sent
+    const text = await new Promise((resolve) => {
+      this.hidden = { resolve, parts: [], cancelled: false };
+      this.input.push({ type: 'user', message: { role: 'user', content: HANDOFF_REQUEST }, parent_tool_use_id: null, session_id: this.session, uuid });
+    });
+    return { text, uuid };
+  }
+
+  collectHidden(msg) {
+    const h = this.hidden;
+    if (msg.type === 'assistant' && !msg.parent_tool_use_id) {
+      for (const b of msg.message?.content || []) if (b.type === 'text') h.parts.push(b.text);
+    }
+    if (msg.type === 'result') {
+      this.hidden = null;
+      const text = h.parts.join('\n\n').trim();
+      h.resolve(!h.cancelled && msg.subtype === 'success' && text ? text : null);
+    }
+  }
+
+  // Writes the handoff and closes; handoffDone settles once the cut and handoff are stored.
+  // It leaves the registry then even if the process is slow to exit, so the next send starts anew.
+  startHandoff() {
+    this.handoffTried = true;
+    this.handoffDone = warmHandoff(this).finally(() => { if (registry.get(this.id) === this) registry.delete(this.id); });
+    return this.handoffDone;
+  }
+
+  // The user came back while the handoff was being written: stop it, and wait until the process
+  // has closed, so the chat resumes from before the hidden turn.
+  async cancelHandoff() {
+    if (!this.handoffDone) return;
+    this.handoffCancelled = true;
+    if (this.hidden) { this.hidden.cancelled = true; await this.interrupt(); }
+    await this.handoffDone;
   }
 
   // Called by the SDK whenever a tool needs approval. AskUserQuestion is routed
@@ -328,6 +401,7 @@ const registry = new Map(); // chatId -> ChatRunner
 // belong to its profile (chats.js ownedChat). A changed model or effort restarts an idle
 // process on the same session. rewind (an edited message, after stopRunner): { at } starts the
 // session again from that transcript entry, or afresh when at is null (the first message).
+// A plain resume starts after a handoff's hidden turn, if one is still at the end of the chain.
 export function runnerFor(row, { model, effort, mode }, rewind = null) {
   let runner = registry.get(row.id);
   if (runner && (runner.model !== model || runner.effort !== effort) && runner.state !== 'running') {
@@ -337,8 +411,9 @@ export function runnerFor(row, { model, effort, mode }, rewind = null) {
   }
   if (!runner) {
     const isNew = rewind ? !rewind.at : row.title === null;
-    runner = new ChatRunner({ id: row.id, profile: row.profile, model, effort, mode: mode || row.permission_mode || undefined,
-      isNew, resumeAt: rewind?.at || undefined });
+    const resumeAt = rewind ? rewind.at : isNew ? null : cutFor(row);
+    runner = new ChatRunner({ id: row.id, session: sessionOf(row), profile: row.profile, model, effort,
+      mode: mode || row.permission_mode || undefined, isNew, resumeAt: resumeAt || undefined, contextTokens: row.context_tokens });
     registry.set(row.id, runner);
   }
   return runner;
@@ -387,8 +462,27 @@ export function refreshAllRunners() {
   for (const r of registry.values()) r.closeIfQuiet();
 }
 
-// Close processes that have sat idle, so concurrent chats don't pile up.
+// Close processes that have sat idle, so concurrent chats don't pile up. A long chat is kept
+// open until it has written its handoff, just before Claude's hour-long cache of its history
+// expires, and closes once it has.
 setInterval(() => {
-  const cutoff = Date.now() - config.chats.idleMinutes * 60 * 1000;
-  for (const r of registry.values()) if (!r.busy && r.state === 'idle' && r.lastActive < cutoff) r.close();
+  const now = Date.now();
+  const idleCutoff = now - config.chats.idleMinutes * 60 * 1000;
+  const handoffCutoff = now - Math.min(Number(config.chats.handoffMinutes) || 0, 55) * 60 * 1000;
+  for (const r of registry.values()) {
+    if (r.busy || r.state !== 'idle' || r.handoffDone) continue;
+    if (r.wantsHandoff) { if (r.lastActive < handoffCutoff) r.startHandoff(); }
+    else if (r.lastActive < idleCutoff) r.close();
+  }
 }, 60 * 1000).unref();
+
+// Once the plan is nearly used up, a chat may not be able to write its handoff later, and a
+// chat stranded by the limit would resume cold the next day. So every long chat writes it now:
+// idle ones at once, working ones when they finish their turn.
+meta.onHighUsage(() => {
+  for (const r of registry.values()) {
+    if (!r.wantsHandoff || r.handoffDone) continue;
+    if (!r.busy && r.state === 'idle') r.startHandoff();
+    else r.handoffWhenIdle = true;
+  }
+});

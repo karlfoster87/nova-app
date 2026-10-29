@@ -6,7 +6,8 @@
 import { h, svgIcon } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { openMenu } from '../lib/menu.js';
-import { confirmDialog } from '../lib/dialog.js';
+import { confirmDialog, infoDialog } from '../lib/dialog.js';
+import { renderMarkdown } from '../lib/markdown.js';
 import { slideOnHover } from '../lib/slide.js';
 
 const ICONS = {
@@ -240,7 +241,8 @@ export function initSidebar(ctx) {
 
   function chatMenu(chat, item) {
     const items = [
-      { label: 'Rename', disabled: !chat.title, action: () => inlineEdit(item, chat.title, 120, (title) => api('PATCH', `/api/chats/${chat.id}`, { title })) }
+      { label: 'Rename', disabled: !chat.title, action: () => inlineEdit(item, chat.title, 120, (title) => api('PATCH', `/api/chats/${chat.id}`, { title })) },
+      { label: 'Show summary', disabled: !chat.has_summary, action: () => showSummary(chat) }
     ];
     const targets = state.categories.filter((c) => c.id !== chat.category_id);
     if (targets.length || chat.category_id) items.push({ heading: 'Move to' });
@@ -342,6 +344,23 @@ export function initSidebar(ctx) {
     try { state.categories = await api('POST', `/api/categories/${id}/move`, { beforeId }); render(true); }
     catch (err) { state.categories = before; render(true); notify(`Couldn't move that category: ${err.message}`); }
     if (refocus) list.querySelector(`[data-cat="${id}"] .cat-more`)?.focus();
+  }
+
+  // ---- Summary ---------------------------------------------------------------
+  // The handoff Nova stored for a long chat (server chat/handoff.js): what a fresh session
+  // carries on from. Read-only; it's rewritten whenever the chat next goes quiet.
+  async function showSummary(chat) {
+    let s;
+    try { s = await api('GET', `/api/chats/${chat.id}/summary`); } catch (err) { s = { error: err.message }; }
+    const when = s.writtenAt ? new Date(s.writtenAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    const prose = h('div', { class: 'prose summary-text' });
+    if (s.summary) prose.innerHTML = renderMarkdown(s.summary); // sanitised by renderMarkdown
+    const body = s.error ? h('p', { class: 'confirm-message' }, s.error) : h('div', { class: 'stack' },
+      h('p', { class: 'muted summary-meta' }, `Written ${when}. ` + (s.current
+        ? 'It covers the latest replies, so this is what Nova would carry on from in a fresh session.'
+        : 'The chat has had replies since, so Nova writes a new summary before carrying on from one.')),
+      prose);
+    await infoDialog({ title: `Summary of "${chat.title || 'New chat'}"`, body, wide: true });
   }
 
   // ---- Rename and delete --------------------------------------------------

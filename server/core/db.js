@@ -77,6 +77,15 @@ addColumn('profiles', 'prefs', 'TEXT');      // JSON personal preferences, null 
 addColumn('notes', 'active', 'INTEGER NOT NULL DEFAULT 1'); // 0 = long-standing
 addColumn('notes', 'shared', 'INTEGER NOT NULL DEFAULT 0'); // 1 = shown to every profile (views/notes.js)
 addColumn('apps', 'brain_grants', 'TEXT'); // JSON { path: 'read' | 'write' } an admin allowed (apps/brain.js); null = none
+// A chat can run over several Claude Code sessions: a long one reopened after its cache expired
+// continues from a handoff in a fresh session (chat/handoff.js).
+addColumn('chats', 'session_id', 'TEXT');      // the session it continues now; null = the chat's own id
+addColumn('chats', 'past_sessions', 'TEXT');   // JSON array of earlier session ids, oldest first
+addColumn('chats', 'active_at', 'INTEGER');    // when Nova last finished a reply: the cache is warm for an hour after
+addColumn('chats', 'context_tokens', 'INTEGER'); // the context's size at that reply
+addColumn('chats', 'handoff', 'TEXT');         // Nova's summary for carrying on in a fresh session
+addColumn('chats', 'handoff_at', 'INTEGER');
+addColumn('chats', 'handoff_cut', 'TEXT');     // JSON { session, at }: resume there, leaving the hidden handoff turn off the chain
 
 // Rows from before chats were tied to a brain belong to whichever brain is active the
 // first time this runs.
@@ -124,9 +133,14 @@ export const q = {
   // Chats and categories, in the active brain.
   chat: scoped('SELECT * FROM chats WHERE id = ? AND brain = ?'),
   allChatIds: db.prepare('SELECT id FROM chats'), // every profile and brain: transcript move only
-  chats: scoped('SELECT id, title, model, effort, permission_mode, category_id, updated_at FROM chats WHERE profile = ? AND brain = ? ORDER BY updated_at DESC LIMIT 500'),
+  chats: scoped('SELECT id, title, model, effort, permission_mode, category_id, updated_at, active_at, context_tokens, CASE WHEN handoff IS NULL THEN NULL ELSE handoff_at END AS handoff_at FROM chats WHERE profile = ? AND brain = ? ORDER BY updated_at DESC LIMIT 500'),
   addChat: scoped('INSERT INTO chats (id, profile, title, model, effort, created_at, updated_at, category_id, brain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
   touchChat: db.prepare('UPDATE chats SET updated_at = ?, model = ?, effort = ? WHERE id = ?'),
+  chatActive: db.prepare('UPDATE chats SET active_at = ?, context_tokens = COALESCE(?, context_tokens) WHERE id = ?'),
+  setChatContext: db.prepare('UPDATE chats SET context_tokens = ? WHERE id = ?'),
+  setHandoff: db.prepare('UPDATE chats SET handoff = COALESCE(?, handoff), handoff_at = COALESCE(?, handoff_at), handoff_cut = ? WHERE id = ?'),
+  clearCut: db.prepare("UPDATE chats SET handoff_cut = NULL WHERE id = ? AND json_extract(handoff_cut, '$.session') = ?"), // only the session's own cut
+  setSessions: db.prepare('UPDATE chats SET session_id = ?, past_sessions = ?, context_tokens = NULL WHERE id = ? AND profile = ?'),
   setChatMode: db.prepare('UPDATE chats SET permission_mode = ? WHERE id = ? AND profile = ?'),
   setChatCategory: db.prepare('UPDATE chats SET category_id = ? WHERE id = ? AND profile = ?'),
   renameChat: db.prepare('UPDATE chats SET title = ? WHERE id = ? AND profile = ?'),

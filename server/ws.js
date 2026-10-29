@@ -1,6 +1,6 @@
 // The WebSocket: one per browser tab, signed in with the same cookie as the HTTP API and
 // origin-checked to stop cross-site hijacking. Browsers send chat actions here (new, open,
-// send, answer, mode, interrupt); the server pushes chat events, meta and notices to every
+// send, edit, full_history, answer, mode, interrupt); the server pushes chat events, meta and notices to every
 // tab of the profile through hub.js. See the wiki's websocket-protocol page for each message.
 // Proxies such as Cloudflare Tunnel close a socket that's quiet for a minute or two, and a phone
 // that sleeps leaves sockets that never close, so both ends keep a heartbeat: browsers send
@@ -12,7 +12,7 @@ import { sameOrigin } from './http/respond.js';
 import { profileFrom } from './accounts/auth.js';
 import { publicMeta } from './claude/meta.js';
 import { existingRunner, PERMISSION_MODES, EFFORTS } from './chat/runner.js';
-import { ownedChat, createChat, sendMessage, editMessage, changeMode, openChat } from './chat/chats.js';
+import { ownedChat, createChat, sendMessage, editMessage, loadFullHistory, changeMode, openChat } from './chat/chats.js';
 
 export function attachSockets(server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
@@ -64,12 +64,16 @@ async function handle(profile, ws, raw) {
       return;
     }
     case 'send':
-    case 'edit': {
+    case 'edit':
+    case 'full_history': {
       const row = ownedChat(profile, m.chatId);
       if (!row) return reply({ t: 'error', message: 'Chat not found.' });
       const text = String(m.text || '').trim();
       try {
-        if (m.t === 'send') await sendMessage(profile, row, { text, attachments: m.attachments, voice: m.voice === true, model, effort, mode, clientId: m.clientId });
+        // resume: the user's answer when the composer asked how to reopen a long, cold chat.
+        const resume = m.resume === 'fresh' || m.resume === 'full' ? m.resume : undefined;
+        if (m.t === 'send') await sendMessage(profile, row, { text, attachments: m.attachments, voice: m.voice === true, model, effort, mode, clientId: m.clientId, resume });
+        else if (m.t === 'full_history') await loadFullHistory(profile, row, { voice: m.voice === true, model, effort, mode, clientId: m.clientId });
         else await editMessage(profile, row, { uuid: String(m.uuid || ''), text, voice: m.voice === true, model, effort, mode, clientId: m.clientId });
       } catch (err) {
         if (!(err instanceof UserError)) throw err;

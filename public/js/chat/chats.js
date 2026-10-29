@@ -5,6 +5,7 @@ import { $, h } from '../lib/dom.js';
 import { slide, stopSlide } from '../lib/slide.js';
 import { store } from '../lib/store.js';
 import { TAB_ID } from '../lib/api.js';
+import { confirmDialog } from '../lib/dialog.js';
 import { state, els, titleOf } from '../state.js';
 import { Transcript } from './transcript.js';
 import { connect, send } from './socket.js';
@@ -56,6 +57,7 @@ function makeTranscript(chatId, loading = false) {
     loading,
     onAnswer: (reqId, result) => send({ t: 'answer', chatId, reqId, result }),
     onEdit: (uuid, text) => editMessage(chatId, uuid, text),
+    onLoadFull: () => loadFullHistory(chatId),
     onChange: () => { if (chatId === state.current && t.el.isConnected) { stick(); updatePresence(); } }
   });
   return t;
@@ -135,7 +137,12 @@ function onServer(m) {
       // A finished turn may have written app files, which the Apps view can't hear about otherwise.
       if (m.msg.type === 'result') for (const v of views.values()) v.onServer?.({ t: 'apps_changed' });
       break;
-    case 'user_echo': sentArrived(m.from); t?.addUser(m.text, m.attachments || [], Date.now(), m.uuid); break;
+    case 'user_echo':
+      sentArrived(m.from);
+      if (m.continued) t?.addContinued(true); // it starts a fresh session from Nova's summary
+      t?.addUser(m.text, m.attachments || [], Date.now(), m.uuid);
+      break;
+    case 'notice': t?.addNotice(m.message); break;
     case 'rewound': t?.rewind(m.uuid); break;
     case 'state':
       state.chatState.set(m.chatId, m.state);
@@ -171,6 +178,22 @@ function editMessage(chatId, uuid, text) {
   if (voice) unlockSpeech();
   state.speakFor[voice ? 'add' : 'delete'](chatId);
   send({ t: 'edit', chatId, uuid, text, voice, ...picks() });
+}
+
+// The chat carried on from Nova's summary, and the user wants the whole earlier conversation back
+// (transcript.js addContinued). The server sends the first message since the summary again on the
+// old session; every tab drops it onwards (rewound) before it echoes.
+async function loadFullHistory(chatId) {
+  if (state.chatState.get(chatId) === 'running') return;
+  const ok = await confirmDialog({ title: 'Load the full history?', confirm: 'Load full history',
+    message: 'Nova sends your first message since the summary again, with the whole earlier conversation instead of the summary. ' +
+      'That reads the full history afresh, so it uses much more of your plan. Any replies since the summary leave the chat.' });
+  if (!ok) return;
+  stopSpeaking();
+  const voice = voiceOn();
+  if (voice) unlockSpeech();
+  state.speakFor[voice ? 'add' : 'delete'](chatId);
+  send({ t: 'full_history', chatId, voice, ...picks() });
 }
 
 // ---- Opening and starting chats -----------------------------------------------

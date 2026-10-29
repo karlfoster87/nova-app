@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.7.3 · Node 22.15+ · five dependencies · no build step
+Version 0.8.0 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -19,6 +19,8 @@ Version 0.7.3 · Node 22.15+ · five dependencies · no build step
 ### A chat built for an agent
 
 Replies stream in with markdown (code blocks copy with one click), collapsible thinking, and every tool call with its result. Sub-agents appear under the call that started them, and the presence panel shows what each one is doing, live. When Nova needs permission, you choose: allow once, for this chat, always, or deny. Pick the model, effort and permission mode per chat, attach files and images, and type `/` for your brain's own skills and commands. Edit any message you sent with the pencil beside it: Nova picks up from that point, and the old message and everything after it are replaced.
+
+Long chats stay affordable. Claude keeps a chat's history cached for an hour, and reading a long history again after that uses a big share of your plan. So shortly before the hour is up, a long chat that has gone quiet writes itself a short summary, and when you come back the next day it carries on from that summary in a fresh session, under the same chat, with everything said so far still there to scroll back through. If the summary isn't enough, **Load full history** brings the whole conversation back. You can have Nova ask each time instead, or always load the full history (Settings, Claude). When the plan is nearly used up, long chats write their summaries straight away, so none is left stranded. Nova also compacts long chats earlier, while they're still cached, and trims very long command or file output.
 
 ### Your brain, in the browser
 
@@ -127,7 +129,7 @@ For a tight setup, limit the container's outbound traffic to Anthropic and Claud
 ## Good to know
 
 - **Your data** lives in `data/` (or `/opt/nova/data`): `config.json`, the database, Nova's own Claude sign-in and chat transcripts, attachments and logs. Keep it private, backups included.
-- **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `updates.checkHours` (24, or 0 to stop checking), `paths.appsDir` (`data/apps`), and for app backends `apps.timeoutSec` (15) and `apps.memoryMB` (256).
+- **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `chats.coldResume` (`fresh`, `ask` or `full`), `chats.handoffMinutes` (50), `chats.handoffMinTokens` (30000), `chats.handoffAtUsage` (85%), `chats.autoCompactPercent` (60), `chats.maxToolResultChars` (20000), `updates.checkHours` (24, or 0 to stop checking), `paths.appsDir` (`data/apps`), and for app backends `apps.timeoutSec` (15) and `apps.memoryMB` (256).
 - **Security:** every request is checked against the signed-in profile, passwords and PINs are hashed with scrypt, sessions are HttpOnly and SameSite=Strict, a strict Content Security Policy is in place, and chat output is sanitised before it's shown. Nova's chats act as the user running Nova, so in a container, the container is the boundary.
 
 ## Under the hood

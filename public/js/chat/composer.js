@@ -10,6 +10,7 @@
 import { $ } from '../lib/dom.js';
 import { fileChip } from '../lib/widgets.js';
 import { store } from '../lib/store.js';
+import { choiceDialog } from '../lib/dialog.js';
 import { canDictate, canSpeakReplies, toggleDictation, stopDictation, stopSpeaking, unlockSpeech, onSpeaking, onVoiceChange, isSpeaking } from '../lib/speech.js';
 import { state, els } from '../state.js';
 import { send, probe } from './socket.js';
@@ -30,16 +31,33 @@ const saveDraft = () => store.set('draft', els.input.value);
 // Slash command suggestions: / as the first character lists the commands a chat can run.
 const commands = initCommands({ input: els.input, menu: $('cmdMenu'), currentChat: () => state.current, onFill: autoGrow });
 
-function submit() {
+// A long chat whose cached history has expired: with the setting on 'ask', the user chooses how
+// it carries on before the message leaves the box. undefined: don't ask, the server decides;
+// null: cancelled. The server checks again either way (chat/handoff.js startsFresh).
+async function askResume(text) {
+  const chat = state.current && state.chats.find((c) => c.id === state.current);
+  if (state.meta?.coldResume !== 'ask' || !chat?.fresh_after || Date.now() < chat.fresh_after || text.startsWith('/')) return undefined;
+  return choiceDialog({ title: 'Carry on from a summary?',
+    message: 'This is a long chat and it has been idle for over an hour, so Nova no longer has it cached. Carrying on from a ' +
+      'summary in a fresh session uses far less of your plan than reading the full history again. Everything said so far stays here to scroll back through.',
+    choices: [{ label: 'Continue from summary', value: 'fresh' }, { label: 'Load full history', value: 'full' }] });
+}
+
+let asking = false;
+async function submit() {
   const text = els.input.value.trim();
   const items = state.attachments.filter((a) => a.id);
   const attachments = items.map((a) => a.id);
-  if ((!text && !attachments.length) || els.send.disabled) return;
+  if ((!text && !attachments.length) || els.send.disabled || asking) return;
   if (state.ws?.readyState !== 1) {
     probe();
     showHint('Not connected to Nova just now. Your message is still here; send it again once the link shows Online.', true, 6000);
     return;
   }
+  asking = true;
+  let resume;
+  try { resume = await askResume(text); } finally { asking = false; }
+  if (resume === null) return;
   stopDictation();
   stopSpeaking();
   if (voiceOn()) unlockSpeech(); // this tap or key lets a phone play the reply when it comes
@@ -54,7 +72,7 @@ function submit() {
   watchUnsent({ clientId, text, items });
   if (!state.current) { state.pending = { text, attachments, voice, clientId }; send({ t: 'new', categoryId: state.draft.categoryId, ...picks() }); return; }
   state.speakFor[voice ? 'add' : 'delete'](state.current);
-  send({ t: 'send', chatId: state.current, text, attachments, voice, clientId, ...picks() });
+  send({ t: 'send', chatId: state.current, text, attachments, voice, clientId, resume, ...picks() });
 }
 
 // ---- Messages that may not have arrived -------------------------------------

@@ -373,6 +373,10 @@
               <option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option>
             </select></label>
           <label>Close idle chats after (minutes) <input name="idleMinutes" type="number" min="5" max="1440" step="1"></label>
+          <label class="full">When a long chat is reopened after an hour <select name="coldResume">
+              <option value="fresh">Continue from a summary</option><option value="ask">Ask each time</option><option value="full">Load the full history</option>
+            </select></label>
+          <p class="muted full">Nova keeps a chat's history cached for an hour. After that, reading a long chat's history again uses a large share of your plan, so Nova writes a short summary while it's still cached and carries on from that in a fresh session. The earlier messages stay in the chat, and Load full history brings the whole conversation back.</p>
           <label class="check full"><input type="checkbox" name="showThinking"> Show Nova's thinking</label>
           <p class="muted full">A summary of Nova's reasoning streams into each reply's Thinking block. It costs nothing extra, since the thinking happens either way. Open chats switch over once they finish what they're doing.</p>
         </fieldset>
