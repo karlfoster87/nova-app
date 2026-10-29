@@ -14,6 +14,7 @@ import { uploadsDir } from './uploads.js';
 import { novaServer, READ_TOOLS, describeCall } from './tools.js';
 import { HANDOFF_REQUEST, warmHandoff, usageTokens, bigChat, sessionOf, cutFor } from './handoff.js';
 import { can } from '../accounts/access.js';
+import { soulPrompt } from '../soul/soul.js';
 
 // Message types forwarded to the browser. Everything else stays server-side.
 const FORWARD = new Set([
@@ -126,7 +127,8 @@ export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes thr
           'say you are Nova, running on Anthropic\'s Claude through Claude Code. ' +
           `You are working under the "${profile}" profile. ` +
           `Notes specific to this profile live in ${profileDir(profile)}; read them when context about the profile would help.` +
-          (buildsApps(profile) ? appsNote() : '')
+          (buildsApps(profile) ? appsNote() : '') +
+          soulPrompt() // the admin's Soul, last, so it can't come before who Nova is
       },
       includePartialMessages: true,
       canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts),

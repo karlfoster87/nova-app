@@ -810,7 +810,7 @@ export function init(ctx) {
         await refreshTree();
       } else if (!path) refreshTree();
       if (path && path !== file?.path) openFile(path);
-      else if (file) ctx.setRoute(encodeURI(file.path));
+      else ctx.setRoute(file ? encodeURI(file.path) : ''); // also replaces a Soul or Heartbeat address left behind
     },
     // Access changed (an admin edited this profile): re-read the file so edit rights match.
     // Access may have changed: the Upload button, each row's options and the file's edit rights follow.

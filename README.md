@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.9.1 · Node 22.15+ · five dependencies · no build step
+Version 0.10.0 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -29,6 +29,10 @@ Long chats stay affordable. Claude keeps a chat's history cached for an hour, an
 Read and edit the notes Nova works from. Markdown renders with `[[wiki links]]`, embeds, images and video; HTML reports render safely in a sandbox. Search the whole brain by file or folder name from the box above the tree. Upload files and folders, and if the brain is a git repository, every save is committed.
 
 ![The Brain view: a project note with properties, a sprint table and a checklist](docs/screenshots/brain.png)
+
+### Soul: how Nova comes across
+
+The Soul sets Nova's character, style, tone and friendliness for every chat, in every profile: warm and chatty, crisp and businesslike, or whatever suits your household or team. Open it from the Core tab, the last of the tabs, which gathers the brain, the Soul, Heartbeat and Thought behind a switch at the top of its sidebar. An admin writes it in plain words, or markdown, and everyone with brain access can read it but not change it. New chats use it straight away, and open chats pick it up the next time they go quiet. It's sent with every chat, so it's kept short (6,000 characters at most), and it never changes Nova's name or what Nova is allowed to do. It's stored in the data folder as `soul.md`, outside the brain, so neither Nova nor a brain edit can change it. Heartbeat (scheduled and triggered work) and Thought (a timeline of what Nova has done) are on their way.
 
 ### Talk to it
 

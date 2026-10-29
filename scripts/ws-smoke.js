@@ -389,11 +389,40 @@ async function brain(a, b, c) {
   check(c3 && !('files' in c3) && !('text' in c3), 'the search leaves out the brain for a profile without brain access');
   check((await http('GET', `/api/search?q=${encodeURIComponent('" OR NEAR( *')}&today=2026-10-03`, { cookie: a })).status === 200, 'search syntax in what\'s typed is taken as plain words');
   check((await http('GET', '/api/brain/image?path=notes%2Fa.md', { cookie: a })).status === 415, 'only raster images are served inline');
+  await soul(a, b, c);
   await brainVideo(a, c);
   await brainPages(a, b, c);
   await brainFiles(b, c);
   await tasksAndNotes(a, b, c);
   await apps(a, b, c);
+}
+
+// The Soul (soul/soul.js): one behavioural prompt for every chat. Anyone with brain access reads
+// it, only an admin saves it, a stale editor can't overwrite a newer one, and it reaches the prompt.
+async function soul(a, b, c) {
+  const get = (cookie) => http('GET', '/api/soul', { cookie });
+  const put = (cookie, text, version, origin) => http('PUT', '/api/soul', { cookie, origin, body: { text, version } });
+  const first = await get(a);
+  check(first.status === 200 && first.data.text === '' && first.data.canEdit === true, 'an admin reads an empty Soul and may edit it');
+  const seen = await get(b);
+  check(seen.status === 200 && seen.data.canEdit === false, 'a profile with brain access reads the Soul but may not edit it');
+  check((await get(c)).status === 403, 'a profile without brain access can\'t read the Soul');
+  check((await put(b, 'Be curt.', seen.data.version)).status === 403, 'a user can\'t change the Soul');
+  check((await put(a, 'Be curt.', first.data.version, 'http://evil.example')).status === 403, 'a cross-origin Soul change is refused');
+  check((await put(a, 'x'.repeat(first.data.maxChars + 1), first.data.version)).status === 400, 'an over-long Soul is refused');
+  const ws = await connect({ cookie: b });
+  const saved = await put(a, 'Warm and plain-spoken.\r\nBritish English.', first.data.version);
+  check(saved.status === 200 && saved.data.text === 'Warm and plain-spoken.\nBritish English.\n' && saved.data.version !== first.data.version,
+    'an admin saves the Soul, with its line endings made plain');
+  check(!!(await next(ws, (m) => m.t === 'soul_changed').catch(() => null)), 'every profile\'s tabs hear that the Soul changed');
+  ws.close();
+  check((await put(a, 'Something else.', first.data.version)).status === 409, 'a save from an out-of-date Soul is refused');
+  check((await get(b)).data?.text === saved.data.text, 'the stored Soul is what was saved');
+  const { soulPrompt } = await import('../server/soul/soul.js');
+  check(soulPrompt().includes('# Soul') && soulPrompt().includes('British English.'), 'the Soul goes into the chat system prompt');
+  const cleared = await put(a, '  \n', saved.data.version);
+  check(cleared.status === 200 && cleared.data.text === '' && !fs.existsSync(path.join(tmp, 'soul.md')) && soulPrompt() === '',
+    'clearing the Soul removes it from the prompt');
 }
 
 // Brain files an app may use (apps/brain.js): named in app.json, allowed by an admin, and

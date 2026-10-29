@@ -1,0 +1,20 @@
+/* The Core tab's group (Brain · Soul · Heartbeat · Thought): the switch at the top of its sidebar, and the Soul view. */
+/* ---- Group switch ------------------------------------------------------ */
+.view-switch { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--shade); flex: none; }
+.view-switch button {
+  min-width: 0; border: 0; background: none; cursor: pointer; padding: 7px 0; color: var(--muted);
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: color 0.15s, background-color 0.15s;
+}
+.view-switch button + button { border-left: 1px solid var(--line); }
+.view-switch button:hover { color: var(--ink); }
+.view-switch button[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); text-shadow: 0 0 8px var(--glow); }
+.view-switch button:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+.view-switch button:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+
+/* ---- Soul -------------------------------------------------------------- */
+.soul-about { padding: 0 6px; font-size: 12.5px; line-height: 1.55; }
+.soul-about p { margin: 0 0 10px; }
+.soul-meta { font-size: 11.5px; }
+.soul-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.soul-count.over { color: var(--bad); }

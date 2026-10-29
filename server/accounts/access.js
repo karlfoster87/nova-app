@@ -10,10 +10,11 @@ const RANK = { none: 0, read: 1, edit: 2 };
 // The views Nova has built, in sidebar order. A new view adds an entry here, a browser
 // module in public/js/views/ (listed in public/js/shell/views.js), and routes guarded by requireView.
 export const VIEWS = [
-  { id: 'brain', label: 'Brain', noun: 'brain' },
   { id: 'tasks', label: 'Tasks', noun: 'task list' },
   { id: 'notes', label: 'Notes', noun: 'notes' },
-  { id: 'apps', label: 'Apps', noun: 'apps' }
+  { id: 'apps', label: 'Apps', noun: 'apps' },
+  // The Core tab: the brain itself plus the Soul, Heartbeat and Thought, which share its access.
+  { id: 'brain', label: 'Core', noun: 'brain' }
 ];
 const byId = new Map(VIEWS.map((v) => [v.id, v]));
 

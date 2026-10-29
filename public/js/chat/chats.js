@@ -119,7 +119,8 @@ function onServer(m) {
       if (m.from !== TAB_ID) for (const v of views.values()) v.onServer?.(m);
       return;
     // An app was added, changed or removed (here, in another tab, or by Nova's tools).
-    case 'apps_changed': for (const v of views.values()) v.onServer?.(m); return;
+    // An app was added, changed or removed, or an admin saved the Soul.
+    case 'apps_changed': case 'soul_changed': for (const v of views.values()) v.onServer?.(m); return;
     case 'mode': {
       const chat = state.chats.find((c) => c.id === m.chatId);
       if (chat) chat.permission_mode = m.mode;
