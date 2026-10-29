@@ -67,6 +67,7 @@ export function initSidebar(ctx) {
       state.categories = categories;
       for (const c of chats) if (!state.chatState.has(c.id)) state.chatState.set(c.id, c.state);
       render(true);
+      return true;
     } catch (err) { notify(`Couldn't load your chats: ${err.message}`); }
   }
 

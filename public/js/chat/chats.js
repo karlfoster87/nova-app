@@ -11,7 +11,7 @@ import { Transcript } from './transcript.js';
 import { connect, send } from './socket.js';
 import { logEvent } from './activity.js';
 import { picks, setPicks, renderPickers, setMode } from './pickers.js';
-import { syncComposer, voiceOn, sentArrived, settleUnsent, restoreDropped } from './composer.js';
+import { syncComposer, voiceOn, sentArrived, settleUnsent, restoreDropped, switchDraft, draftCreated, dropDraft, pruneDrafts } from './composer.js';
 import { mounted, spot, stick } from './scroll.js';
 import { speak, stopSpeaking, unlockSpeech } from '../lib/speech.js';
 import { initSidebar } from './sidebar.js';
@@ -24,7 +24,7 @@ import { showRestarting } from '../shell/restart.js';
 export let sidebar = null; // the chat list (sidebar.js)
 export let pwa = null;     // launches, notifications and the app badge (shell/pwa.js)
 
-const loadChats = () => sidebar.load().then(() => { renderChatHead(); pwa.paintBadge(); });
+const loadChats = () => sidebar.load().then((loaded) => { if (loaded) pruneDrafts(); renderChatHead(); pwa.paintBadge(); });
 const renderChatList = () => { sidebar.render(); renderChatHead(); pwa.paintBadge(); };
 
 // Sets up the chat list and the installed-app hooks, then loads the chats and connects.
@@ -78,6 +78,7 @@ function onServer(m) {
     case 'meta': state.meta = m.meta; renderPickers(); renderUsage(); return;
     case 'created': {
       state.current = m.chatId;
+      draftCreated();
       mountTranscript(transcriptFor(m.chatId));
       if (state.pending) {
         if (state.pending.voice) state.speakFor.add(m.chatId);
@@ -105,7 +106,7 @@ function onServer(m) {
     }
     case 'chats_changed':
       if (m.deleted && m.deleted === state.current) newChat(state.chats.find((c) => c.id === m.deleted)?.category_id);
-      if (m.deleted) state.transcripts.delete(m.deleted);
+      if (m.deleted) { state.transcripts.delete(m.deleted); dropDraft(m.deleted); }
       loadChats();
       return;
     // This profile was renamed or removed, or its role changed, possibly from another tab.
@@ -204,6 +205,7 @@ async function loadFullHistory(chatId) {
 export function openChat(id) {
   state.current = id;
   state.unread.delete(id);
+  switchDraft();
   const chat = state.chats.find((c) => c.id === id);
   if (chat?.model) setPicks(chat.model, chat.effort);
   setMode(chat?.permission_mode || 'default');
@@ -220,6 +222,7 @@ export function openChat(id) {
 export function newChat(categoryId = null) {
   state.current = null;
   state.draft = { categoryId: categoryId || null };
+  switchDraft();
   setMode(store.get('mode', 'default'));
   const category = state.categories.find((c) => c.id === categoryId);
   mountTranscript(new Transcript(null, { where: category?.name }));

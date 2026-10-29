@@ -7,6 +7,7 @@
 // Nothing typed is lost to a dropped connection: the box is kept in this browser's storage
 // (a phone can reload an installed app at any time), a message isn't taken from the box while
 // the link is down, and one sent just as the link died comes back if the server never got it.
+// Each chat keeps its own draft, so a half-written message stays put while you look at others.
 // While Nova is replying, Send interjects: Nova reads the message at its next step, between tool
 // calls, as Claude Code's own terminal does. Stop & send (Ctrl+Enter) stops the step it's on and
 // reads the message at once.
@@ -36,7 +37,72 @@ export function syncComposer() {
 }
 
 function autoGrow() { els.input.style.height = 'auto'; els.input.style.height = `${els.input.scrollHeight}px`; }
-const saveDraft = () => store.set('draft', els.input.value);
+
+// ---- Drafts -------------------------------------------------------------------
+// The box's text is kept per chat in this browser's storage, under the chat's id or 'new' for
+// the unsent new chat. Files attached but not yet sent stay with their chat too, though only
+// until the page closes (unsent uploads are swept by the server anyway).
+const keyOf = (chatId) => chatId || 'new';
+const drafts = store.get('drafts', null) ?? (store.get('draft', '') ? { new: store.get('draft', '') } : {}); // 'draft' held the one box before v0.9.1
+const setAside = new Map(); // key → attachments of a chat that isn't open
+let draftKey = 'new';
+
+function saveDraft() {
+  if (els.input.value) drafts[draftKey] = els.input.value; else delete drafts[draftKey];
+  store.set('drafts', drafts);
+}
+
+// Puts the open chat's draft in the box, after putting the last chat's away.
+export function switchDraft() {
+  const key = keyOf(state.current);
+  if (key === draftKey) return;
+  stopDictation(); // or it would carry on typing into the next chat's draft
+  saveDraft();
+  if (state.attachments.length) setAside.set(draftKey, state.attachments);
+  draftKey = key;
+  els.input.value = drafts[key] || '';
+  state.attachments = setAside.get(key) || [];
+  setAside.delete(key);
+  commands.close();
+  autoGrow();
+  renderAttachments();
+  syncComposer();
+}
+
+// The new chat has its id: whatever was typed since its first message went stays with it.
+export function draftCreated() {
+  if (draftKey !== 'new') { switchDraft(); return; }
+  delete drafts.new;
+  draftKey = keyOf(state.current);
+  saveDraft();
+}
+
+// A deleted chat's draft goes with it. Called once the box has moved to another chat.
+export function dropDraft(chatId) {
+  const key = keyOf(chatId);
+  for (const a of setAside.get(key) || []) a.xhr?.abort();
+  setAside.delete(key);
+  if (key in drafts && key !== draftKey) { delete drafts[key]; store.set('drafts', drafts); }
+}
+
+// Drafts of chats that no longer exist (deleted elsewhere while this browser was away).
+export function pruneDrafts() {
+  const ids = new Set(state.chats.map((c) => c.id));
+  const gone = Object.keys(drafts).filter((k) => k !== 'new' && k !== draftKey && !ids.has(k));
+  if (!gone.length) return;
+  for (const k of gone) delete drafts[k];
+  store.set('drafts', drafts);
+}
+
+// Text that comes back to a chat's box (a message Nova never read), ahead of anything typed since.
+function putBack(key, text) {
+  const typed = (key === draftKey ? els.input.value : drafts[key] || '').trim();
+  const value = typed ? `${text}\n\n${typed}` : text;
+  if (key !== draftKey) { drafts[key] = value; store.set('drafts', drafts); return; }
+  els.input.value = value;
+  saveDraft();
+  autoGrow();
+}
 
 // Slash command suggestions: / as the first character lists the commands a chat can run.
 const commands = initCommands({ input: els.input, menu: $('cmdMenu'), currentChat: () => state.current, onFill: autoGrow });
@@ -98,17 +164,13 @@ async function submit(interject = 'next') {
 // The tab that sent one puts its text back in the box; its files were used up, so they're named.
 const mine = new Set(); // clientIds this tab sent
 
-export function restoreDropped({ from, text, files }) {
+export function restoreDropped({ chatId, from, text, files }) {
   if (!from || !mine.has(from)) return;
   mine.delete(from);
-  if (text) {
-    const typed = els.input.value.trim();
-    els.input.value = typed ? `${text}\n\n${typed}` : text;
-    saveDraft();
-    autoGrow();
-  }
+  const here = keyOf(chatId) === draftKey;
+  if (text) putBack(keyOf(chatId), text);
   syncComposer();
-  showHint(`Nova stopped before reading your last message, so ${text ? 'it\'s back in the box' : 'it wasn\'t sent'}.` +
+  showHint(`Nova stopped before reading your last message${here ? '' : ' in another chat'}, so ${text ? `it's back in ${here ? 'the' : 'that chat\'s'} box` : 'it wasn\'t sent'}.` +
     (files ? ' Attach its files again to send them.' : ''), true, 8000);
 }
 
@@ -136,10 +198,7 @@ export function settleUnsent(chatId, delivered) {
   if (delivered.includes(unsent.clientId)) { sentArrived(unsent.clientId); return; }
   const { text, items } = unsent;
   sentArrived(unsent.clientId);
-  const typed = els.input.value.trim();
-  els.input.value = typed ? `${text}\n\n${typed}` : text;
-  saveDraft();
-  autoGrow();
+  putBack(draftKey, text);
   state.attachments = [...items, ...state.attachments];
   renderAttachments();
   syncComposer();
@@ -152,8 +211,8 @@ els.input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit((e.ctrlKey || e.metaKey) && isRunning() ? 'now' : 'next'); }
 });
 els.input.addEventListener('input', () => { autoGrow(); saveDraft(); if (isRunning()) syncComposer(); });
-// What was in the box when the page last closed, unless something else filled it first.
-if (!els.input.value) { els.input.value = store.get('draft', ''); autoGrow(); }
+// What was in the new chat's box when the page last closed, unless something else filled it first.
+if (!els.input.value) { els.input.value = drafts.new || ''; autoGrow(); }
 els.stop.addEventListener('click', () => { stopSpeaking(); send({ t: 'interrupt', chatId: state.current }); });
 els.now.addEventListener('click', () => submit('now'));
 
