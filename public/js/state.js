@@ -22,7 +22,7 @@ export const state = {
 export const els = {
   chatList: $('chatList'), transcript: $('transcript'),
   model: $('modelSelect'), effort: $('effortSelect'), effortWrap: $('effortWrap'), mode: $('modeSelect'), usage: $('usage'),
-  input: $('input'), composer: $('composer'), send: $('sendBtn'), stop: $('stopBtn'),
+  input: $('input'), composer: $('composer'), send: $('sendBtn'), stop: $('stopBtn'), now: $('nowBtn'),
   attachList: $('attachList'), attachBtn: $('attachBtn'), fileInput: $('fileInput'), mic: $('micBtn'), speak: $('speakBtn'),
   presence: $('presence'), sidebar: $('sidebar'),
   chatTitle: $('chatTitle'), chatWhere: $('chatWhere'), chatState: $('chatState'), link: $('linkState')

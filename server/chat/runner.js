@@ -98,7 +98,7 @@ class InputQueue {
   }
 }
 
-class ChatRunner {
+export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes through runnerFor
   constructor({ id, session, profile, model, effort, mode, isNew, resumeAt, contextTokens }) {
     // id: the Nova chat. session: the Claude Code session it continues, the same id until the
     // chat first continues in a fresh session (handoff.js).
@@ -110,6 +110,8 @@ class ChatRunner {
     this.pending = new Map(); // reqId -> resolve(PermissionResult)
     this.pendingInfo = new Map(); // reqId -> payload, replayed to tabs that reconnect
     this.tasks = new Map(); // task_id -> { started, progress } for sub-agents still running, replayed on open
+    this.queued = new Map(); // uuid -> user_echo payload: messages sent mid-reply that Nova hasn't read yet, replayed on open
+    this.inTurn = false; // a turn is under way (state stays 'running' between turns while messages wait)
     this.lastActive = Date.now();
     this.input = new InputQueue();
 
@@ -160,8 +162,9 @@ class ChatRunner {
   }
 
   // Would stopping the process now lose anything? Not while Claude is working, a prompt
-  // waits for an answer, a sub-agent is still running, or a handoff is being written.
-  get busy() { return this.state === 'running' || this.pending.size > 0 || this.tasks.size > 0 || !!this.hidden; }
+  // waits for an answer, a sub-agent is still running, a message sent mid-reply is waiting, or a
+  // handoff is being written.
+  get busy() { return this.state === 'running' || this.pending.size > 0 || this.tasks.size > 0 || this.queued.size > 0 || !!this.hidden; }
 
   // Long enough that a fresh session from a handoff would cost much less than resuming it cold.
   get wantsHandoff() { return config.chats.handoffMinutes > 0 && !this.handoffTried && bigChat(this.contextTokens || 0); }
@@ -171,17 +174,21 @@ class ChatRunner {
       for await (const msg of this.query) {
         this.lastActive = Date.now();
         if (msg.type === 'rate_limit_event') { meta.noteRateLimit(msg.rate_limit_info); continue; }
+        if (msg.type === 'command_lifecycle') { this.trackQueued(msg); continue; }
         // The handoff turn is the server's own: no tab sees it, and it isn't the chat's activity.
         if (this.hidden) { this.collectHidden(msg); continue; }
         if (msg.type === 'assistant' && !msg.parent_tool_use_id && msg.message?.usage) this.contextTokens = usageTokens(msg.message.usage);
         if (msg.type === 'system') this.trackSystem(msg);
         // Claude can start a turn on its own, e.g. when a background agent reports back.
-        if (this.state === 'idle' && !msg.parent_tool_use_id && (msg.type === 'assistant' || msg.type === 'stream_event')) {
-          this.setState('running');
+        if (!msg.parent_tool_use_id && (msg.type === 'assistant' || msg.type === 'stream_event')) {
+          this.inTurn = true;
+          if (this.state === 'idle') this.setState('running');
         }
         if (FORWARD.has(msg.type)) this.emit({ t: 'sdk', msg });
         if (msg.type === 'result') {
-          this.setState('idle');
+          this.inTurn = false;
+          // A message sent mid-reply that came too late for this turn starts the next one.
+          if (!this.queued.size) this.setState('idle');
           q.chatActive.run(Date.now(), this.contextTokens, this.id);
           meta.refreshUsageSoon();
           if (this.stale) this.closeIfQuiet();
@@ -202,6 +209,7 @@ class ChatRunner {
       this.pending.clear();
       this.pendingInfo.clear();
       this.tasks.clear();
+      for (const uuid of [...this.queued.keys()]) this.dropQueued(uuid);
     }
   }
 
@@ -240,9 +248,15 @@ class ChatRunner {
 
   // content: the text, or content blocks when files are attached (uploads.messageContent).
   // uuid: the message's id in the transcript, so it can be edited later.
-  send(content, uuid) {
+  // While Nova is replying the message is an interjection: Claude Code queues it and reads it at
+  // its next step, between tool calls, as its CLI does with a message typed mid-reply ('next'), or
+  // stops the step it's on and reads it at once ('now'). A reply that ends before another step
+  // takes it as the next turn. echo: the user_echo, kept to replay until it's read (trackQueued).
+  send(content, uuid, { interject = 'next', echo = null } = {}) {
     this.lastActive = Date.now();
-    this.setState('running');
+    const queued = this.state === 'running';
+    if (queued) this.queued.set(uuid, echo);
+    else { this.inTurn = true; this.setState('running'); }
     q.touchChat.run(Date.now(), this.model, this.effort, this.id);
     // The chain now carries on from the cut, so later resumes follow it without one.
     if (this.cutAt) { q.clearCut.run(this.id, this.session); this.cutAt = null; }
@@ -251,9 +265,36 @@ class ChatRunner {
       message: { role: 'user', content },
       parent_tool_use_id: null,
       session_id: this.session,
-      uuid
+      uuid,
+      ...(queued ? { priority: interject === 'now' ? 'now' : 'next' } : {})
     });
+    return queued;
   }
+
+  // Claude Code reports each queued message as queued, started (read: folded into the running
+  // turn, or the start of a new one), completed, or cancelled. Tabs move a waiting message to
+  // where Nova read it, or take it away.
+  trackQueued(msg) {
+    const uuid = msg.command_uuid;
+    if (!this.queued.has(uuid)) return;
+    if (msg.state === 'started' || msg.state === 'completed') {
+      this.queued.delete(uuid);
+      this.inTurn = true;
+      if (this.state !== 'running') this.setState('running');
+      this.emit({ t: 'interjected', uuid });
+    } else if (msg.state === 'cancelled') this.dropQueued(uuid);
+  }
+
+  // A waiting message that will never be read (Stop, or the process ended). The tab that sent it
+  // puts its text back in the box.
+  dropQueued(uuid) {
+    const echo = this.queued.get(uuid);
+    if (!this.queued.delete(uuid)) return;
+    this.emit({ t: 'interjection_dropped', uuid, from: echo?.from || null, text: echo?.text || '', files: echo?.attachments?.length || 0 });
+    if (!this.queued.size && !this.inTurn && this.state === 'running') this.setState('idle');
+  }
+
+  queuedEchoes() { return [...this.queued.values()].filter(Boolean); }
 
   // ---- Handoff ------------------------------------------------------------------
   // One hidden turn asking Nova for a handoff (handoff.js), at low effort on the same model so
@@ -381,7 +422,13 @@ class ChatRunner {
       [started, progress].filter(Boolean).map((msg) => ({ t: 'sdk', chatId: this.id, msg })));
   }
 
-  async interrupt() { try { await this.query.interrupt(); } catch {} }
+  // Stop means stop everything: messages still waiting to be read go too.
+  async interrupt() {
+    try {
+      const receipt = await this.query.interrupt({ cancelQueued: true });
+      for (const uuid of receipt?.cancelled || []) this.dropQueued(uuid);
+    } catch {}
+  }
 
   // Closes the process if nothing would be lost; otherwise as soon as it's quiet. The next
   // send resumes the session.

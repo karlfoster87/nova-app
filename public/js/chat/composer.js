@@ -7,6 +7,9 @@
 // Nothing typed is lost to a dropped connection: the box is kept in this browser's storage
 // (a phone can reload an installed app at any time), a message isn't taken from the box while
 // the link is down, and one sent just as the link died comes back if the server never got it.
+// While Nova is replying, Send interjects: Nova reads the message at its next step, between tool
+// calls, as Claude Code's own terminal does. Stop & send (Ctrl+Enter) stops the step it's on and
+// reads the message at once.
 import { $ } from '../lib/dom.js';
 import { fileChip } from '../lib/widgets.js';
 import { store } from '../lib/store.js';
@@ -17,12 +20,19 @@ import { send, probe } from './socket.js';
 import { picks } from './pickers.js';
 import { initCommands } from './commands.js';
 
+const isRunning = () => !!state.current && state.chatState.get(state.current) === 'running';
+const hasMessage = () => !!els.input.value.trim() || state.attachments.some((a) => a.id);
+
 export function syncComposer() {
-  const running = state.current && state.chatState.get(state.current) === 'running';
+  const running = isRunning();
   const uploading = state.attachments.some((a) => a.xhr);
   els.stop.hidden = !running;
-  els.send.disabled = running || uploading;
-  els.send.title = uploading ? 'Wait for the files to finish uploading' : '';
+  els.now.hidden = !running || !hasMessage();
+  els.now.disabled = uploading;
+  els.send.disabled = uploading;
+  els.send.title = uploading ? 'Wait for the files to finish uploading' : running ? 'Send: Nova reads it at its next step' : '';
+  els.input.placeholder = running ? 'Add to what Nova is doing' : 'Message Nova';
+  if (hint.textContent === HINT || hint.textContent === RUNNING_HINT) showHint(); // leaves a passing message alone
 }
 
 function autoGrow() { els.input.style.height = 'auto'; els.input.style.height = `${els.input.scrollHeight}px`; }
@@ -36,7 +46,7 @@ const commands = initCommands({ input: els.input, menu: $('cmdMenu'), currentCha
 // null: cancelled. The server checks again either way (chat/handoff.js startsFresh).
 async function askResume(text) {
   const chat = state.current && state.chats.find((c) => c.id === state.current);
-  if (state.meta?.coldResume !== 'ask' || !chat?.fresh_after || Date.now() < chat.fresh_after || text.startsWith('/')) return undefined;
+  if (state.meta?.coldResume !== 'ask' || !chat?.fresh_after || Date.now() < chat.fresh_after || text.startsWith('/') || isRunning()) return undefined;
   return choiceDialog({ title: 'Carry on from a summary?',
     message: 'This is a long chat and it has been idle for over an hour, so Nova no longer has it cached. Carrying on from a ' +
       'summary in a fresh session uses far less of your plan than reading the full history again. Everything said so far stays here to scroll back through.',
@@ -44,7 +54,9 @@ async function askResume(text) {
 }
 
 let asking = false;
-async function submit() {
+// interject: 'now' stops what Nova is doing to read the message (Stop & send); otherwise a
+// message sent mid-reply waits for Nova's next step. The server decides whether it's mid-reply.
+async function submit(interject = 'next') {
   const text = els.input.value.trim();
   const items = state.attachments.filter((a) => a.id);
   const attachments = items.map((a) => a.id);
@@ -52,6 +64,10 @@ async function submit() {
   if (state.ws?.readyState !== 1) {
     probe();
     showHint('Not connected to Nova just now. Your message is still here; send it again once the link shows Online.', true, 6000);
+    return;
+  }
+  if (isRunning() && text.startsWith('/')) {
+    showHint('Commands can\'t be sent while Nova is replying. Wait for it to finish, or press Stop first.', true, 6000);
     return;
   }
   asking = true;
@@ -72,7 +88,28 @@ async function submit() {
   watchUnsent({ clientId, text, items });
   if (!state.current) { state.pending = { text, attachments, voice, clientId }; send({ t: 'new', categoryId: state.draft.categoryId, ...picks() }); return; }
   state.speakFor[voice ? 'add' : 'delete'](state.current);
-  send({ t: 'send', chatId: state.current, text, attachments, voice, clientId, resume, ...picks() });
+  mine.add(clientId);
+  send({ t: 'send', chatId: state.current, text, attachments, voice, clientId, resume, interject, ...picks() });
+  syncComposer();
+}
+
+// ---- Messages sent mid-reply that Nova never read -----------------------------
+// Stop drops messages still waiting for Nova's next step (and so does a chat's process ending).
+// The tab that sent one puts its text back in the box; its files were used up, so they're named.
+const mine = new Set(); // clientIds this tab sent
+
+export function restoreDropped({ from, text, files }) {
+  if (!from || !mine.has(from)) return;
+  mine.delete(from);
+  if (text) {
+    const typed = els.input.value.trim();
+    els.input.value = typed ? `${text}\n\n${typed}` : text;
+    saveDraft();
+    autoGrow();
+  }
+  syncComposer();
+  showHint(`Nova stopped before reading your last message, so ${text ? 'it\'s back in the box' : 'it wasn\'t sent'}.` +
+    (files ? ' Attach its files again to send them.' : ''), true, 8000);
 }
 
 // ---- Messages that may not have arrived -------------------------------------
@@ -112,12 +149,13 @@ export function settleUnsent(chatId, delivered) {
 els.composer.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
 els.input.addEventListener('keydown', (e) => {
   if (commands.onKeydown(e)) return; // the command list has the arrow keys, Enter, Tab and Esc while it's open
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit((e.ctrlKey || e.metaKey) && isRunning() ? 'now' : 'next'); }
 });
-els.input.addEventListener('input', () => { autoGrow(); saveDraft(); });
+els.input.addEventListener('input', () => { autoGrow(); saveDraft(); if (isRunning()) syncComposer(); });
 // What was in the box when the page last closed, unless something else filled it first.
 if (!els.input.value) { els.input.value = store.get('draft', ''); autoGrow(); }
 els.stop.addEventListener('click', () => { stopSpeaking(); send({ t: 'interrupt', chatId: state.current }); });
+els.now.addEventListener('click', () => submit('now'));
 
 // ---- Voice ----------------------------------------------------------------------
 // Spoken replies are a per-browser switch, so a phone in the car can talk while the desktop
@@ -125,17 +163,20 @@ els.stop.addEventListener('click', () => { stopSpeaking(); send({ t: 'interrupt'
 // While a reply is being read, the button stops it instead of switching.
 
 const hint = $('hint'), HINT = hint.textContent;
+const RUNNING_HINT = 'Nova is replying: Enter adds your message at its next step, Ctrl+Enter stops it and sends now.';
+const usualHint = () => (isRunning() ? RUNNING_HINT : HINT);
 export const voiceOn = () => canSpeakReplies() && store.get('voiceReplies', false) === true;
 
 // A message in the hint line; with ms, it goes back to the usual hint after that long.
 let hintTimer;
-function showHint(text = HINT, bad = false, ms = 0) {
+function showHint(text = usualHint(), bad = false, ms = 0) {
   clearTimeout(hintTimer);
   if (ms) hintTimer = setTimeout(() => showHint(), ms);
+  const usual = text === usualHint();
   hint.textContent = text;
   hint.classList.toggle('bad', bad);
-  hint.classList.toggle('live', text !== HINT);
-  hint.title = text === HINT ? '' : text;
+  hint.classList.toggle('live', !usual);
+  hint.title = usual ? '' : text;
 }
 
 els.mic.hidden = !canDictate;

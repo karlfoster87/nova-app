@@ -26,6 +26,12 @@
 .turn-user:hover .turn-edit, .turn-edit:focus-visible { opacity: 1; }
 @media (hover: none) { .turn-edit { opacity: 1; } }
 .busy .turn-edit, .turn.editing .turn-edit { display: none; }
+/* Messages sent while Nova replies (transcript.js addUser queued): they wait at the end, dimmed,
+   until Nova reads them at its next step and they move to that point. */
+.queued-list { border-top: 1px dashed var(--line-bright); }
+.turn.queued .msg-user, .turn.queued > .turn-icon { opacity: 0.6; }
+.turn-queued { font-size: 11.5px; color: var(--accent); }
+.turn-queued::before { content: '// '; color: var(--line-bright); }
 .edit-form { display: grid; gap: 8px; }
 .edit-input {
   width: 100%; resize: none; min-height: 44px; padding: 8px 10px; line-height: 1.75;

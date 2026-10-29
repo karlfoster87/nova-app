@@ -39,7 +39,7 @@ q.setAccess.run(JSON.stringify({ brain: 'none' }), 'smoke-c'); // smoke-b keeps 
 // unrelated one, which must not be copied.
 const OLD_CHAT = crypto.randomUUID(), STRANGER = crypto.randomUUID();
 db.prepare("INSERT INTO chats (id, profile, title, created_at, updated_at, brain) VALUES (?, 'smoke-a', 'old', 0, 0, 'smoke-other-brain')").run(OLD_CHAT);
-const toolResults = [...await novaToolChecks(), ...await handoffChecks()];
+const toolResults = [...await novaToolChecks(), ...await handoffChecks(), ...await interjectionChecks()];
 db.close();
 const oldClaude = path.join(tmp, 'old-claude');
 const oldProject = path.join(oldClaude, 'projects', 'C--old-brain');
@@ -1122,6 +1122,9 @@ async function claudeSignin(a, b) {
   ws.send(JSON.stringify({ t: 'send', chatId: created?.chatId, text: 'hello' }));
   const refused = await next(ws, (m) => m.t === 'error').catch(() => null);
   check(/isn't signed in to Claude. Ask an admin/.test(refused?.message || ''), 'sending while Nova is signed out is refused with what to do');
+  ws.send(JSON.stringify({ t: 'send', chatId: created?.chatId, text: 'hello', interject: 'now' }));
+  const refusedNow = await next(ws, (m) => m.t === 'error' && m !== refused).catch(() => null);
+  check(/isn't signed in to Claude/.test(refusedNow?.message || ''), 'Stop & send is refused the same way while Nova is signed out');
   ws.close();
 }
 
@@ -1279,6 +1282,40 @@ async function handoffChecks() {
     t(h.continuedBlock('S').text.startsWith('<previous-session>') && h.isContinuedBlock(h.continuedBlock('S')), 'a fresh session\'s first message carries the summary in its own block');
   } catch (err) {
     t(false, `the handoff checks threw: ${err.message}`);
+  }
+  return out;
+}
+
+// Messages sent while Nova is replying (server/chat/runner.js send, trackQueued, dropQueued). A
+// real interjection needs a sign-in and quota, so these drive a runner with no process behind it:
+// what goes to Claude Code, and what tabs are told as it reports the message queued, read or dropped.
+async function interjectionChecks() {
+  const out = [];
+  const t = (ok, label) => out.push([!!ok, label]);
+  try {
+    const { ChatRunner } = await import('../server/chat/runner.js');
+    const r = Object.assign(Object.create(ChatRunner.prototype), { id: crypto.randomUUID(), profile: 'smoke-a', model: null, effort: null, state: 'idle',
+      pending: new Map(), tasks: new Map(), queued: new Map(), inTurn: false, hidden: null, cutAt: null });
+    const pushed = [], told = [];
+    r.input = { push: (m) => pushed.push(m) };
+    r.emit = (p) => told.push(p);
+    const [u1, u2, u3] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    t(r.send('first', u1) === false && pushed[0].priority === undefined && r.state === 'running', 'a message to an idle chat starts a turn as before');
+    t(r.send('also this', u2, { echo: { text: 'also this', from: 'tab-1' } }) === true && pushed[1].priority === 'next' && r.busy,
+      'a message sent mid-reply is queued for Nova\'s next step, and the chat counts as busy');
+    r.send('stop and do this', u3, { interject: 'now', echo: { text: 'stop and do this', from: 'tab-1' } });
+    t(pushed[2].priority === 'now' && r.queuedEchoes().length === 2, 'Stop & send asks Claude Code to stop the step it\'s on, and both wait to be replayed');
+    r.trackQueued({ command_uuid: u2, state: 'started' });
+    t(told.some((p) => p.t === 'interjected' && p.uuid === u2) && !r.queued.has(u2), 'tabs hear when Nova reads a waiting message');
+    r.trackQueued({ command_uuid: crypto.randomUUID(), state: 'cancelled' });
+    t(!told.some((p) => p.t === 'interjection_dropped'), 'lifecycle news about other messages is ignored');
+    r.inTurn = false;
+    r.trackQueued({ command_uuid: u3, state: 'cancelled' });
+    const dropped = told.find((p) => p.t === 'interjection_dropped');
+    t(dropped?.uuid === u3 && dropped.from === 'tab-1' && dropped.text === 'stop and do this' && r.state === 'idle' && !r.busy,
+      'a dropped message goes back to the tab that sent it, and a chat with nothing left to do is idle');
+  } catch (err) {
+    t(false, `the interjection checks threw: ${err.message}`);
   }
   return out;
 }

@@ -91,6 +91,7 @@ export class Transcript {
     this.asks = new Map();    // reqId -> card element
     this.live = null;         // current streaming assistant message
     this.turn = null;         // the assistant turn being written: { el, body }
+    this.queue = null;        // messages sent mid-reply that Nova hasn't read yet, kept at the end
     this.ended = [];          // agents that finished recently, for the presence panel
     this.activity = 'idle';   // idle | thinking | writing | tool
     this.activityLabel = '';
@@ -110,7 +111,8 @@ export class Transcript {
 
   append(node, parent) {
     if (this.empty) { this.el.replaceChildren(); this.empty = false; }
-    (parent || this.el).append(node);
+    if (!parent && this.queue?.isConnected) this.el.insertBefore(node, this.queue); // waiting messages stay last
+    else (parent || this.el).append(node);
     this.onChange();
   }
 
@@ -119,12 +121,12 @@ export class Transcript {
   // ---- Turns -----------------------------------------------------------
   // Each turn is an icon, the speaker and time, then what was said. Everything Claude
   // does between two user messages (text, thinking, tools, prompts) shares one turn.
-  startTurn(kind, at) {
+  startTurn(kind, at, parent) {
     const body = h('div', { class: 'turn-body' });
     const time = at ? h('time', { class: 'turn-time', datetime: new Date(at).toISOString() }, hhmm(at)) : null;
     const head = h('div', { class: 'turn-head' }, h('span', { class: 'turn-name' }, kind === 'user' ? 'You' : 'Nova'), time);
     const el = h('article', { class: `turn turn-${kind}` }, turnIcon(kind), head, body);
-    this.append(el);
+    this.append(el, parent);
     return { el, head, body };
   }
 
@@ -141,9 +143,18 @@ export class Transcript {
   // ---- User side -------------------------------------------------------
   // uuid: the message's id in the session, which makes it editable. Slash commands aren't:
   // Claude Code records them as something other than the message sent.
-  addUser(text, files = [], at = Date.now(), uuid = null) {
-    this.turn = null;
-    const { el, head, body } = this.startTurn('user', at);
+  // queued ('next' | 'now'): sent while Nova was replying and not read yet. It waits at the end,
+  // below whatever Nova is still writing, until placeQueued moves it to where Nova read it.
+  addUser(text, files = [], at = Date.now(), uuid = null, queued = null) {
+    if (queued && this.el.querySelector(`.turn-user[data-uuid="${CSS.escape(uuid)}"]`)) return; // replayed on reopen
+    if (!queued) this.turn = null;
+    else if (!this.queue?.isConnected) { this.queue = h('div', { class: 'queued-list' }); this.append(this.queue); }
+    const { el, head, body } = this.startTurn('user', at, queued ? this.queue : null);
+    if (queued) {
+      el.classList.add('queued');
+      el.dataset.uuid = uuid;
+      head.append(h('span', { class: 'turn-queued' }, queued === 'now' ? 'Stopping Nova to read this' : 'Nova reads this at its next step'));
+    }
     const chips = files.length ? h('ul', { class: 'file-chips' }, files.map((f) => fileChip(f, { href: `/api/uploads/${f.id}` }))) : null;
     const msg = h('div', { class: 'msg-user' }, text || null, chips);
     body.append(msg);
@@ -216,6 +227,26 @@ export class Transcript {
     this.turn = null;
     this.live = null;
     if (!this.el.children.length) { this.empty = true; this.showEmpty(); }
+    this.onChange();
+  }
+
+  // Nova read a message sent mid-reply (the server's interjected): it moves from the end to here,
+  // and what Nova does next starts a turn below it.
+  placeQueued(uuid) {
+    const el = this.queue?.querySelector(`.turn-user[data-uuid="${CSS.escape(uuid)}"]`);
+    if (!el) return;
+    el.classList.remove('queued');
+    el.querySelector('.turn-queued')?.remove();
+    this.live = null;
+    this.turn = null;
+    this.append(el);
+    if (!this.queue.children.length) { this.queue.remove(); this.queue = null; }
+  }
+
+  // A waiting message Nova will never read (Stop, or the chat's process ended).
+  dropQueued(uuid) {
+    this.queue?.querySelector(`.turn-user[data-uuid="${CSS.escape(uuid)}"]`)?.remove();
+    if (this.queue && !this.queue.children.length) { this.queue.remove(); this.queue = null; }
     this.onChange();
   }
 
@@ -454,6 +485,7 @@ export class Transcript {
     this.tasks.clear();
     this.ended = [];
     this.turn = null;
+    this.queue = null;
     this.el.replaceChildren();
     this.empty = true;
     if (!messages.length) { this.showEmpty(); return; }

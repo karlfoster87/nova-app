@@ -125,16 +125,19 @@ async function settleHandoff(profile, row) {
 // Hands a message to the chat's process and echoes it to every tab, with the uuid it gets in
 // the transcript so any tab can offer to edit it. A slash command must stay the whole message
 // for Claude Code to run it, so it never gets the voice note. continued: the message starts a
-// fresh session from the chat's handoff, which tabs mark above it.
-async function deliver(profile, row, runner, content, { text, files, voice, mode, clientId, continued = false }) {
+// fresh session from the chat's handoff, which tabs mark above it. interject: how a message sent
+// while Nova is replying goes in (runner.send); its echo says it's queued until Nova reads it.
+async function deliver(profile, row, runner, content, { text, files, voice, mode, clientId, continued = false, interject }) {
   if (mode && runner.mode !== mode) await runner.setMode(mode);
   else if (mode && row.permission_mode !== mode) q.setChatMode.run(mode, row.id, profile);
   if (voice && !text.startsWith('/')) content = [...(typeof content === 'string' ? [{ type: 'text', text: content }] : content), { type: 'text', text: VOICE_NOTE }];
   const uuid = crypto.randomUUID();
-  runner.send(content, uuid);
+  const echo = { t: 'user_echo', chatId: row.id, uuid, text, continued,
+    attachments: files.map(({ id, name, size, type }) => ({ id, name, size, type })), from: clientId };
+  if (runner.state === 'running') echo.queued = interject === 'now' ? 'now' : 'next';
+  runner.send(content, uuid, { interject, echo });
   noteDelivered(row.id, clientId);
-  hub.toProfile(profile, { t: 'user_echo', chatId: row.id, uuid, text, continued,
-    attachments: files.map(({ id, name, size, type }) => ({ id, name, size, type })), from: clientId });
+  hub.toProfile(profile, echo);
 }
 
 // Starts the chat on a fresh Claude Code session, from its handoff, after the cache of its
@@ -172,12 +175,17 @@ function requireQuiet(profile, row, busy, then) {
 // clientId lets the sending tab recognise its own. A long chat whose cache has expired carries
 // on in a fresh session, unless the setting or the user's answer (resume: 'fresh' | 'full') says
 // otherwise; slash commands always resume in full, as they must be the whole message.
-export async function sendMessage(profile, row, { text, attachments, voice, model, effort, mode, clientId, resume }) {
+// While Nova is replying the message interjects (interject: 'next' | 'now', see runner.send).
+// A slash command can't: it must be a turn of its own for Claude Code to run it.
+export async function sendMessage(profile, row, { text, attachments, voice, model, effort, mode, clientId, resume, interject }) {
+  if (preparing.has(row.id)) requireQuiet(profile, row, false, 'send');
+  if (text.startsWith('/') && existingRunner(profile, row.id)?.state === 'running') {
+    throw new UserError('Commands can\'t be sent while Nova is replying. Wait for it to finish, or press Stop first.', 409);
+  }
   const files = claimUploads(profile, attachments);
   if (!text && !files.length) return;
   requireSignedIn(profile);
   row = await settleHandoff(profile, row);
-  requireQuiet(profile, row, false, 'send');
   let content = messageContent(profile, row.id, text, files);
   const fresh = !text.startsWith('/') && !existingRunner(profile, row.id)?.busy && startsFresh(row, resume)
     ? await continueFresh(profile, row) : null;
@@ -186,8 +194,7 @@ export async function sendMessage(profile, row, { text, attachments, voice, mode
     content = [continuedBlock(fresh.handoff), ...(typeof content === 'string' ? [{ type: 'text', text: content }] : content)];
   }
   const runner = runnerFor(row, { model, effort, mode }, fresh ? { at: null } : null);
-  if (runner.state === 'running') throw new UserError('Nova is still responding. Stop it or wait before sending.');
-  await deliver(profile, row, runner, content, { text, files, voice, mode, clientId, continued: !!fresh });
+  await deliver(profile, row, runner, content, { text, files, voice, mode, clientId, continued: !!fresh, interject });
   if (!row.title) {
     const title = text || `Files: ${files.map((f) => f.name).join(', ')}`;
     q.renameChat.run(title.replace(/\s+/g, ' ').slice(0, 80), row.id, profile);
@@ -288,7 +295,7 @@ export async function openChat(profile, id) {
   }
   const runner = existingRunner(profile, id);
   return { messages, state: preparing.has(id) ? 'running' : stateOf(id), delivered: delivered.get(id) || [],
-    replay: [...(runner?.pendingRequests() || []), ...(runner?.runningTasks() || [])] };
+    replay: [...(runner?.pendingRequests() || []), ...(runner?.runningTasks() || []), ...(runner?.queuedEchoes() || [])] };
 }
 
 // Transcripts written before Nova had its own Claude folder are copied in, so older chats keep

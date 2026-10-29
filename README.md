@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.8.0 · Node 22.15+ · five dependencies · no build step
+Version 0.9.0 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -19,6 +19,8 @@ Version 0.8.0 · Node 22.15+ · five dependencies · no build step
 ### A chat built for an agent
 
 Replies stream in with markdown (code blocks copy with one click), collapsible thinking, and every tool call with its result. Sub-agents appear under the call that started them, and the presence panel shows what each one is doing, live. When Nova needs permission, you choose: allow once, for this chat, always, or deny. Pick the model, effort and permission mode per chat, attach files and images, and type `/` for your brain's own skills and commands. Edit any message you sent with the pencil beside it: Nova picks up from that point, and the old message and everything after it are replaced.
+
+You don't have to wait for Nova to finish. Send a message while it's replying and Nova reads it at its next step, so "actually, skip the tests" changes course partway through without losing the work so far. The message waits at the end of the chat until Nova reads it, then moves to that point. **Stop & send** (or Ctrl+Enter) stops what Nova is doing and sends your message straight away. Stop drops any message Nova hasn't read yet and puts it back in the box.
 
 Long chats stay affordable. Claude keeps a chat's history cached for an hour, and reading a long history again after that uses a big share of your plan. So shortly before the hour is up, a long chat that has gone quiet writes itself a short summary, and when you come back the next day it carries on from that summary in a fresh session, under the same chat, with everything said so far still there to scroll back through. If the summary isn't enough, **Load full history** brings the whole conversation back. You can have Nova ask each time instead, or always load the full history (Settings, Claude). When the plan is nearly used up, long chats write their summaries straight away, so none is left stranded. Nova also compacts long chats earlier, while they're still cached, and trims very long command or file output.
 

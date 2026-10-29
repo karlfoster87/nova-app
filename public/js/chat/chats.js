@@ -11,7 +11,7 @@ import { Transcript } from './transcript.js';
 import { connect, send } from './socket.js';
 import { logEvent } from './activity.js';
 import { picks, setPicks, renderPickers, setMode } from './pickers.js';
-import { syncComposer, voiceOn, sentArrived, settleUnsent } from './composer.js';
+import { syncComposer, voiceOn, sentArrived, settleUnsent, restoreDropped } from './composer.js';
 import { mounted, spot, stick } from './scroll.js';
 import { speak, stopSpeaking, unlockSpeech } from '../lib/speech.js';
 import { initSidebar } from './sidebar.js';
@@ -140,8 +140,11 @@ function onServer(m) {
     case 'user_echo':
       sentArrived(m.from);
       if (m.continued) t?.addContinued(true); // it starts a fresh session from Nova's summary
-      t?.addUser(m.text, m.attachments || [], Date.now(), m.uuid);
+      t?.addUser(m.text, m.attachments || [], Date.now(), m.uuid, m.queued || null); // queued: sent mid-reply
       break;
+    // A message sent mid-reply: Nova read it (it moves to that point), or never will (Stop).
+    case 'interjected': t?.placeQueued(m.uuid); break;
+    case 'interjection_dropped': t?.dropQueued(m.uuid); restoreDropped(m); break;
     case 'notice': t?.addNotice(m.message); break;
     case 'rewound': t?.rewind(m.uuid); break;
     case 'state':

@@ -72,7 +72,9 @@ async function handle(profile, ws, raw) {
       try {
         // resume: the user's answer when the composer asked how to reopen a long, cold chat.
         const resume = m.resume === 'fresh' || m.resume === 'full' ? m.resume : undefined;
-        if (m.t === 'send') await sendMessage(profile, row, { text, attachments: m.attachments, voice: m.voice === true, model, effort, mode, clientId: m.clientId, resume });
+        // interject: 'now' stops what Nova is doing to read a message sent mid-reply; otherwise it waits for the next step.
+        const interject = m.interject === 'now' ? 'now' : 'next';
+        if (m.t === 'send') await sendMessage(profile, row, { text, attachments: m.attachments, voice: m.voice === true, model, effort, mode, clientId: m.clientId, resume, interject });
         else if (m.t === 'full_history') await loadFullHistory(profile, row, { voice: m.voice === true, model, effort, mode, clientId: m.clientId });
         else await editMessage(profile, row, { uuid: String(m.uuid || ''), text, voice: m.voice === true, model, effort, mode, clientId: m.clientId });
       } catch (err) {
