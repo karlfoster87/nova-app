@@ -20,7 +20,9 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/ja
 const STYLESHEET = /^\/css\/[a-z0-9-]+\.css$/;
 const MODULE = /^\/js(\/[a-z0-9-]+)+\.js$/;
 const ICON = /^\/icons\/[a-z0-9-]+\.(png|svg)$/; // browsers fetch the manifest's icons without the cookie
-const PUBLIC_FILES = new Set(['/js/login.js', '/manifest.webmanifest', '/icon.svg']);
+// The service worker (push notifications) too: browsers re-fetch it to look for changes, and a
+// session that has ended must not turn that into a redirect, which would leave alerts on an old copy.
+const PUBLIC_FILES = new Set(['/js/login.js', '/manifest.webmanifest', '/icon.svg', '/sw.js']);
 
 function serveFile(res, file) {
   fs.readFile(file, (err, data) => {
@@ -31,7 +33,7 @@ function serveFile(res, file) {
 }
 
 // Before sign-in: the sign-in page, its script, the stylesheets, the vendored libraries,
-// the manifest and its icons. Returns true if it served the request.
+// the manifest, its icons and the service worker. Returns true if it served the request.
 export function servePublic(res, p) {
   if (p === '/login' || p === '/login.html') return serveFile(res, path.join(PUBLIC, 'login.html'));
   if (VENDOR[p]) return serveFile(res, VENDOR[p]);

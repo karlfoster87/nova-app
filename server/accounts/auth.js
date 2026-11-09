@@ -80,7 +80,7 @@ export function cookieHeader(token, clear = false) {
   return parts.join('; ');
 }
 
-function tokenFrom(req) {
+export function tokenFrom(req) {
   const m = (req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`));
   return m ? m[1] : null;
 }
@@ -92,7 +92,11 @@ export function profileFrom(req) {
   return row ? row.profile : null;
 }
 
+// Signing out (or switching profile) also stops push notifications to this browser, which
+// were tied to this sign-in (push/notify.js).
 export function logout(req) {
   const token = tokenFrom(req);
-  if (token) q.dropLogin.run(token);
+  if (!token) return;
+  q.dropLogin.run(token);
+  q.dropLoginPushSubs.run(token);
 }

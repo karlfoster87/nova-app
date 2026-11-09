@@ -39,7 +39,7 @@ q.setAccess.run(JSON.stringify({ brain: 'none' }), 'smoke-c'); // smoke-b keeps 
 // unrelated one, which must not be copied.
 const OLD_CHAT = crypto.randomUUID(), STRANGER = crypto.randomUUID();
 db.prepare("INSERT INTO chats (id, profile, title, created_at, updated_at, brain) VALUES (?, 'smoke-a', 'old', 0, 0, 'smoke-other-brain')").run(OLD_CHAT);
-const toolResults = [...await novaToolChecks(), ...await handoffChecks(), ...await interjectionChecks()];
+const toolResults = [...await novaToolChecks(), ...await handoffChecks(), ...await interjectionChecks(), ...await webPushChecks()];
 db.close();
 const oldClaude = path.join(tmp, 'old-claude');
 const oldProject = path.join(oldClaude, 'projects', 'C--old-brain');
@@ -196,6 +196,7 @@ async function run() {
   check((await http('GET', '/icons/..%2Fapp.js')).status === 302 && (await http('GET', '/icons/nothing.png')).status === 404,
     'the icons route serves only icon files that exist');
   check(typeof (await http('GET', '/api/me', { cookie: a })).data?.version === 'string', '/api/me reports the app version');
+  await pushRoutes(a, b);
 
   // WebSocket: upgrade rules
   check(await refused(connect()), 'WebSocket without a session is refused');
@@ -1365,3 +1366,60 @@ if (failures) {
   process.exit(1);
 }
 console.log('\nAll smoke checks passed.');
+
+// ---- Push notifications ----------------------------------------------------------
+// The hand-written Web Push encryption must match RFC 8291's own worked example exactly; a
+// browser can't decrypt anything else. Runs in this process, before the server starts.
+async function webPushChecks() {
+  const { encrypt, validKeys } = await import('../server/push/webpush.js');
+  const ua = { p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', auth: 'BTBZMqHH6r4Tts7J_aSIgg' };
+  const body = encrypt('When I grow up, I want to be a watermelon', ua,
+    { salt: 'DGv6ra1nlYgDCS1FRnbzlw', asPrivate: 'yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw' }).toString('base64url');
+  return [
+    [body === 'DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN',
+      'Web Push encryption matches the RFC 8291 test vector'],
+    [validKeys(ua.p256dh, ua.auth) && !validKeys(ua.p256dh.slice(0, -4) + 'AAAA', ua.auth) && !validKeys(ua.p256dh, 'short'),
+      'push subscription keys are checked before use']
+  ];
+}
+
+// Subscriptions belong to the profile and sign-in that made them. Nothing here reaches a real
+// push service: the only sends would be the test route's, which is only called where it must refuse.
+async function pushRoutes(a, b) {
+  const sw = await fetch(`${base}/sw.js`);
+  check(sw.status === 200 && /javascript/.test(sw.headers.get('content-type') || '') && !/addEventListener\('fetch'/.test(await sw.text()),
+    'the service worker is served without a session and has no fetch handler');
+  check((await http('GET', '/api/push')).status === 401, 'the push key needs a session');
+  const key = (await http('GET', '/api/push', { cookie: a })).data?.key;
+  check(typeof key === 'string' && Buffer.from(key, 'base64url').length === 65, 'the push key is a raw P-256 public key');
+  check((await http('GET', '/api/push', { cookie: b })).data?.key === key, 'every profile subscribes with the same server key');
+  const keys = { p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', auth: 'BTBZMqHH6r4Tts7J_aSIgg' };
+  const endpoint = `https://fcm.googleapis.com/fcm/send/smoke-${crypto.randomUUID()}`;
+  for (const [bad, label] of [['https://evil.example/push', 'another host'], ['http://fcm.googleapis.com/fcm/send/x', 'plain http'],
+    ['https://127.0.0.1/push', 'a local address']]) {
+    check((await http('POST', '/api/push', { cookie: a, body: { endpoint: bad, keys } })).status === 400, `a push subscription to ${label} is refused`);
+  }
+  check((await http('POST', '/api/push', { cookie: a, body: { endpoint, keys: { ...keys, auth: 'x' } } })).status === 400, 'a push subscription with broken keys is refused');
+  check((await http('POST', '/api/push', { cookie: a, origin: 'http://evil.example', body: { endpoint, keys } })).status === 403, 'a cross-origin push subscription is refused');
+  const own = await signIn('smoke-a');
+  check((await http('POST', '/api/push', { cookie: own, body: { endpoint, keys } })).status === 200, 'a browser subscribes to push');
+  const { DatabaseSync } = await import('node:sqlite');
+  const rows = () => { const d = new DatabaseSync(path.join(tmp, 'nova.db'), { readOnly: true }); try { return d.prepare('SELECT profile FROM push_subs WHERE endpoint = ?').all(endpoint); } finally { d.close(); } };
+  check(rows()[0]?.profile === 'smoke-a', 'the subscription is stored for its profile');
+  check((await http('POST', '/api/push/test', { cookie: b, body: { endpoint } })).status === 404, 'another profile can\'t send a test to a browser it doesn\'t own');
+  await http('DELETE', '/api/push', { cookie: b, body: { endpoint } });
+  check(rows().length === 1, 'another profile can\'t remove a browser\'s subscription');
+  await http('POST', '/api/logout', { cookie: own });
+  check(rows().length === 0, 'signing out ends that browser\'s push subscription');
+  const again = await signIn('smoke-a');
+  await http('POST', '/api/push', { cookie: again, body: { endpoint, keys } });
+  await http('POST', '/api/push', { cookie: b, body: { endpoint, keys } });
+  check(rows().map((r) => r.profile).join() === 'smoke-b', 'a browser that subscribes under another profile moves to it');
+  await http('DELETE', '/api/push', { cookie: b, body: { endpoint } });
+  check(rows().length === 0, 'a profile removes its own browser\'s subscription');
+  const ws = await connect({ cookie: a });
+  ws.send(JSON.stringify({ t: 'front', on: true }));
+  ws.send(JSON.stringify({ t: 'ping' }));
+  check(!!(await next(ws, (m) => m.t === 'pong').catch(() => null)) && !ws.received.some((m) => m.t === 'error'), 'a tab can say it is in front');
+  ws.close();
+}

@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.10.0 · Node 22.15+ · five dependencies · no build step
+Version 0.11.0 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -80,7 +80,7 @@ Install Nova as an app on desktop or phone. It's fully responsive (on a phone, s
 - Plan usage meters with reset times
 - Remembered approvals and extra folders per profile
 - Activity log and an animated avatar that follows what Nova is doing
-- Notifications and an app badge when Nova finishes or needs you
+- Notifications and an app badge when Nova finishes or needs you, including push notifications that arrive with Nova closed (Edge, Chrome, Firefox, and the iPhone and iPad home-screen app), only for the profile signed in on that device
 - One-click updates for Nova and the Agent SDK, tested before they install, with automatic rollback
 - The brain's `CLAUDE.md` and `.claude/` rules, skills and agents load into every chat, just as in Claude Code
 
@@ -126,7 +126,7 @@ To stop Nova, run the same script with `-Stop`; `-Uninstall` removes the autosta
 3. Put [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) in front of `http://127.0.0.1:8484`, with Cloudflare Access (a long session, around a month, suits the installed app).
 4. Open Nova, sign in, and connect Claude from **Settings → Claude**.
 
-For a tight setup, limit the container's outbound traffic to Anthropic and Claude, GitHub, npm, NodeSource, the Debian mirrors, Cloudflare and your file shares. The `nova` command also does `logs`, `status`, `restart`, and `claude-login` for terminal sign-in.
+For a tight setup, limit the container's outbound traffic to Anthropic and Claude, GitHub, npm, NodeSource, the Debian mirrors, Cloudflare, your file shares and, for push notifications, the browsers' push services (`*.notify.windows.com` for Edge, `*.push.apple.com` for iPhone and iPad, `fcm.googleapis.com` for Chrome, `*.push.services.mozilla.com` for Firefox). The `nova` command also does `logs`, `status`, `restart`, and `claude-login` for terminal sign-in.
 
 ## Updates
 

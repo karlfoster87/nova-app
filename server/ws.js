@@ -1,6 +1,6 @@
 // The WebSocket: one per browser tab, signed in with the same cookie as the HTTP API and
 // origin-checked to stop cross-site hijacking. Browsers send chat actions here (new, open,
-// send, edit, full_history, answer, mode, interrupt); the server pushes chat events, meta and notices to every
+// send, edit, full_history, answer, mode, interrupt, front); the server pushes chat events, meta and notices to every
 // tab of the profile through hub.js. See the wiki's websocket-protocol page for each message.
 // Proxies such as Cloudflare Tunnel close a socket that's quiet for a minute or two, and a phone
 // that sleeps leaves sockets that never close, so both ends keep a heartbeat: browsers send
@@ -54,6 +54,9 @@ async function handle(profile, ws, raw) {
   switch (m.t) {
     case 'ping':
       return reply({ t: 'pong' });
+    case 'front': // whether this tab is open and in front; push notifications wait while one is
+      ws.front = m.on === true;
+      return;
     case 'new':
       return reply({ t: 'created', chatId: createChat(profile, { model, effort, categoryId: m.categoryId }) });
     case 'open': {

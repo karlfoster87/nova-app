@@ -30,7 +30,7 @@ const renderChatList = () => { sidebar.render(); renderChatHead(); pwa.paintBadg
 // Sets up the chat list and the installed-app hooks, then loads the chats and connects.
 export async function startChats() {
   sidebar = initSidebar({ state, store, list: els.chatList, openChat, newChat });
-  pwa = initPwa({ state, store, titleOf, goToChat, route: (hash) => goTo(routeFromHash(hash)) });
+  pwa = initPwa({ state, store, titleOf, goToChat, send, route: (hash) => goTo(routeFromHash(hash)) });
   $('newCategoryBtn').addEventListener('click', () => sidebar.openNewCategory());
   renderPickers();
   renderUsage();
@@ -43,6 +43,7 @@ export async function startChats() {
     // chats reload when next opened. A first message whose chat never came back returns to the box.
     onOpen(reconnected) {
       if (reconnected) pwa.reset();
+      pwa.reportFront(true); // a new socket starts out "not in front" on the server
       for (const id of state.transcripts.keys()) if (id !== state.current) state.transcripts.delete(id);
       if (state.current) send({ t: 'open', chatId: state.current });
       else if (state.pending) { state.pending = null; settleUnsent(null, []); }

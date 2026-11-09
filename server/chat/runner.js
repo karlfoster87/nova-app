@@ -15,6 +15,7 @@ import { novaServer, READ_TOOLS, describeCall } from './tools.js';
 import { HANDOFF_REQUEST, warmHandoff, usageTokens, bigChat, sessionOf, cutFor } from './handoff.js';
 import { can } from '../accounts/access.js';
 import { soulPrompt } from '../soul/soul.js';
+import { pushChatEvent } from '../push/notify.js';
 
 // Message types forwarded to the browser. Everything else stays server-side.
 const FORWARD = new Set([
@@ -189,6 +190,10 @@ export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes thr
         if (FORWARD.has(msg.type)) this.emit({ t: 'sdk', msg });
         if (msg.type === 'result') {
           this.inTurn = false;
+          if (!msg.parent_tool_use_id) {
+            const ok = !msg.subtype || msg.subtype === 'success';
+            pushChatEvent(this.profile, this.id, ok ? 'done' : 'stopped', ok ? '' : String(msg.subtype).replace(/_/g, ' '));
+          }
           // A message sent mid-reply that came too late for this turn starts the next one.
           if (!this.queued.size) this.setState('idle');
           q.chatActive.run(Date.now(), this.contextTokens, this.id);
@@ -365,6 +370,9 @@ export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes thr
     };
     this.pendingInfo.set(reqId, payload);
     this.emit(payload);
+    // The push names the tool only: a prompt's title can quote a command or a task.
+    if (toolName === 'AskUserQuestion') pushChatEvent(this.profile, this.id, 'question');
+    else pushChatEvent(this.profile, this.id, 'approval', toolName.replace(/^mcp__[^_]+__/, ''));
     return new Promise((resolve) => {
       this.pending.set(reqId, (result) => {
         if (result.behavior === 'allow_session') {

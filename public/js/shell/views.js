@@ -203,6 +203,7 @@ export function routeFromHash(hash = location.hash) {
 export async function goTo(route) {
   if (!route) return;
   if (route.id === 'chats') {
+    if (route.arg && route.arg !== 'new') return goToChat(route.arg); // #chats/<id>, from a push notification
     await showView('chats');
     if (view === 'chats' && route.arg === 'new') newChat(null);
     return;

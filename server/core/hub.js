@@ -19,6 +19,12 @@ export const hub = {
     for (const ws of sockets.get(profile) || []) ws.close(4001, 'Profile changed');
     sockets.delete(profile);
   },
+  // True when one of the profile's windows is open and in front (each tab reports it with a
+  // 'front' message), so push notifications would only repeat what the person can see.
+  inFront(profile) {
+    for (const ws of sockets.get(profile) || []) if (ws.readyState === 1 && ws.front) return true;
+    return false;
+  },
   toAll(payload) {
     const data = JSON.stringify(payload);
     for (const set of sockets.values()) for (const ws of set) if (ws.readyState === 1) ws.send(data);

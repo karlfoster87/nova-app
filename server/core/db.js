@@ -1,5 +1,5 @@
 // SQLite index: profiles, sign-ins, chats and their categories, approvals and folders, tasks,
-// notes, attachments and profile pictures. Transcripts stay in Claude Code's own session files.
+// notes, attachments, profile pictures and push subscriptions. Transcripts stay in Claude Code's own session files.
 // Every statement lives in the q map below, grouped by area.
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
@@ -58,6 +58,12 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS app_categories (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL, created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS push_subs (
+    endpoint TEXT PRIMARY KEY, profile TEXT NOT NULL, login TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS push_subs_profile ON push_subs(profile);
+  CREATE INDEX IF NOT EXISTS push_subs_login ON push_subs(login);
 `);
 
 // ---- Migrations ---------------------------------------------------------------
@@ -230,12 +236,23 @@ export const q = {
   renameAppCategory: db.prepare('UPDATE app_categories SET name = ? WHERE id = ?'),
   setAppCategoryPosition: db.prepare('UPDATE app_categories SET position = ? WHERE id = ?'),
   uncategoriseApps: db.prepare('UPDATE apps SET category_id = NULL WHERE category_id = ?'),
-  deleteAppCategory: db.prepare('DELETE FROM app_categories WHERE id = ?')
+  deleteAppCategory: db.prepare('DELETE FROM app_categories WHERE id = ?'),
+
+  // Push subscriptions (push/notify.js): one per browser, tied to the sign-in that made it, so
+  // signing out or the session expiring stops that browser's alerts. A browser that subscribes
+  // again under another profile moves to it (the endpoint is the key).
+  pushSubs: db.prepare(`SELECT s.endpoint, s.p256dh, s.auth FROM push_subs s JOIN logins l ON l.token = s.login
+    WHERE s.profile = ? AND l.expires_at > ?`),
+  pushSub: db.prepare('SELECT endpoint, p256dh, auth FROM push_subs WHERE endpoint = ? AND profile = ?'),
+  addPushSub: db.prepare('INSERT OR REPLACE INTO push_subs (endpoint, profile, login, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?, ?)'),
+  deletePushSub: db.prepare('DELETE FROM push_subs WHERE endpoint = ? AND profile = ?'),
+  dropPushSub: db.prepare('DELETE FROM push_subs WHERE endpoint = ?'), // the push service says it's gone
+  dropLoginPushSubs: db.prepare('DELETE FROM push_subs WHERE login = ?')
 };
 
 // Every table holding a profile's rows, so renaming or removing a profile covers them all in
 // one place. A new per-profile table goes in this list. Callers run these in a transaction.
-const PROFILE_TABLES = ['logins', 'chats', 'categories', 'approvals', 'folders', 'tasks', 'notes', 'uploads', 'pictures'];
+const PROFILE_TABLES = ['logins', 'chats', 'categories', 'approvals', 'folders', 'tasks', 'notes', 'uploads', 'pictures', 'push_subs'];
 const renames = PROFILE_TABLES.map((t) => db.prepare(`UPDATE ${t} SET profile = ? WHERE profile = ?`));
 const deletes = PROFILE_TABLES.map((t) => db.prepare(`DELETE FROM ${t} WHERE profile = ?`));
 const renameRow = db.prepare('UPDATE profiles SET name = ? WHERE name = ?');
