@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.11.0 · Node 22.15+ · five dependencies · no build step
+Version 0.11.1 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 

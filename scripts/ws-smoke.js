@@ -1375,7 +1375,28 @@ async function webPushChecks() {
   const ua = { p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', auth: 'BTBZMqHH6r4Tts7J_aSIgg' };
   const body = encrypt('When I grow up, I want to be a watermelon', ua,
     { salt: 'DGv6ra1nlYgDCS1FRnbzlw', asPrivate: 'yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw' }).toString('base64url');
+  // What notifications say: a short reply itself, otherwise what Nova is waiting for.
+  const { pushBody } = await import('../server/push/notify.js');
+  const done = 'Nova has completed your request and is waiting on your response.';
+  const wording = [
+    [pushBody('done', { text: 'All **three** files are [renamed](x.md).' }), 'All three files are renamed.'],
+    [pushBody('done', { text: 'word '.repeat(60) }), done],
+    [pushBody('done', { text: 'Here it is:\n```js\nx()\n```' }), done],
+    [pushBody('done', { text: '| a | b |\n|---|---|' }), done],
+    [pushBody('done', { text: '' }), done],
+    [pushBody('question', { input: { questions: [{ question: 'Which folder should I use?' }] } }), 'Which folder should I use?'],
+    [pushBody('question', { input: { questions: [{ question: 'One?' }, { question: 'Two?' }] } }), 'Nova is awaiting your response to 2 questions.'],
+    [pushBody('question', { input: { questions: [{ question: 'long '.repeat(50) }] } }), 'Nova is awaiting your response to a question.'],
+    [pushBody('approval', { toolName: 'Bash', input: { command: 'npm test' } }), 'Nova needs your approval to run: npm test'],
+    [pushBody('approval', { toolName: 'Edit', input: { file_path: 'C:\\notes\\plan.md' } }), 'Nova needs your approval to edit plan.md.'],
+    [pushBody('approval', { toolName: 'mcp__nova__delete_task', input: {}, described: 'Delete the task "Pay rent"' }), 'Nova needs your approval to delete the task "Pay rent".'],
+    [pushBody('approval', { toolName: 'mcp__other__fetch', input: {} }), 'Nova needs your approval to use fetch.'],
+    [pushBody('stopped', { reason: 'error max turns' }), 'Nova stopped before finishing (error max turns).']
+  ];
+  const wrong = wording.filter(([got, want]) => got !== want);
+  for (const [got, want] of wrong) console.log(`  push wording: got "${got}", wanted "${want}"`);
   return [
+    [!wrong.length, 'push notifications show a short reply itself, and otherwise what Nova is waiting for'],
     [body === 'DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN',
       'Web Push encryption matches the RFC 8291 test vector'],
     [validKeys(ua.p256dh, ua.auth) && !validKeys(ua.p256dh.slice(0, -4) + 'AAAA', ua.auth) && !validKeys(ua.p256dh, 'short'),
