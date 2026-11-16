@@ -39,7 +39,7 @@ q.setAccess.run(JSON.stringify({ brain: 'none' }), 'smoke-c'); // smoke-b keeps 
 // unrelated one, which must not be copied.
 const OLD_CHAT = crypto.randomUUID(), STRANGER = crypto.randomUUID();
 db.prepare("INSERT INTO chats (id, profile, title, created_at, updated_at, brain) VALUES (?, 'smoke-a', 'old', 0, 0, 'smoke-other-brain')").run(OLD_CHAT);
-const toolResults = [...await novaToolChecks(), ...await handoffChecks(), ...await interjectionChecks(), ...await webPushChecks()];
+const toolResults = [...await novaToolChecks(), ...await handoffChecks(), ...await interjectionChecks(), ...await webPushChecks(), ...await heartbeatChecks()];
 db.close();
 const oldClaude = path.join(tmp, 'old-claude');
 const oldProject = path.join(oldClaude, 'projects', 'C--old-brain');
@@ -391,6 +391,7 @@ async function brain(a, b, c) {
   check((await http('GET', `/api/search?q=${encodeURIComponent('" OR NEAR( *')}&today=2026-10-03`, { cookie: a })).status === 200, 'search syntax in what\'s typed is taken as plain words');
   check((await http('GET', '/api/brain/image?path=notes%2Fa.md', { cookie: a })).status === 415, 'only raster images are served inline');
   await soul(a, b, c);
+  await heartbeatRoutes(a, b, c);
   await brainVideo(a, c);
   await brainPages(a, b, c);
   await brainFiles(b, c);
@@ -1197,7 +1198,7 @@ async function novaToolChecks() {
   const { deleteProfileRows } = await import('../server/core/db.js');
   q.addProfile.run('smoke-tools', hashSecret(PASSWORD), Date.now(), 'user', null);
   q.addProfile.run('smoke-tools-view', hashSecret(PASSWORD), Date.now(), 'user', null);
-  q.setAccess.run(JSON.stringify({ tasks: 'read', notes: 'none' }), 'smoke-tools-view');
+  q.setAccess.run(JSON.stringify({ tasks: 'read', notes: 'none', brain: 'none' }), 'smoke-tools-view');
   try {
     const tools = (p) => new Map(novaTools(p).map((d) => [d.name, d]));
     const mine = tools('smoke-tools');
@@ -1208,7 +1209,10 @@ async function novaToolChecks() {
       try { data = JSON.parse(text); } catch {}
       return { error: !!r.isError, text, data };
     };
-    t(mine.size === 10, 'an editing profile gets all ten task and note tools');
+    const TEN = ['list_tasks', 'add_task', 'update_task', 'move_task', 'delete_task', 'list_notes', 'add_note', 'update_note', 'move_note', 'delete_note'];
+    t(TEN.every((n) => mine.has(n)), 'an editing profile gets all ten task and note tools');
+    t(['thought', 'record_thought', 'resolve_question', 'list_heartbeats'].every((n) => mine.has(n)) && !mine.has('add_heartbeat'),
+      'a profile that can view Core gets the Train of Thought tools and the schedule list, but can\'t schedule');
     const viewOnly = tools('smoke-tools-view');
     t(JSON.stringify([...viewOnly.keys()]) === '["list_tasks"]', 'a view-only profile gets only the list tool, and none for a view it can\'t see');
     t(mine.get('list_tasks').annotations?.readOnlyHint && mine.get('delete_task').annotations?.destructiveHint, 'read and delete tools are marked as such');
@@ -1251,7 +1255,7 @@ async function novaToolChecks() {
     const { idleSession } = await import('../server/claude/session.js');
     const { sessionBase } = await import('../server/chat/runner.js');
     const { novaServer, READ_TOOLS } = await import('../server/chat/tools.js');
-    const s = idleSession({ ...sessionBase('smoke-a'), mcpServers: { nova: novaServer('smoke-a', true) }, allowedTools: READ_TOOLS });
+    const s = idleSession({ ...sessionBase('smoke-a'), mcpServers: { nova: novaServer('smoke-a', { apps: true }) }, allowedTools: READ_TOOLS });
     try {
       await s.query.initializationResult();
       let nova = null;
@@ -1259,8 +1263,8 @@ async function novaToolChecks() {
         nova = (await s.query.mcpServerStatus()).find((x) => x.name === 'nova');
         if (nova?.status !== 'connected') await new Promise((r) => setTimeout(r, 1000));
       }
-      t(nova?.status === 'connected' && nova.tools?.length === 11 && nova.tools.some((x) => x.name === 'apps_guide'),
-        'Claude Code connects the nova tool server with all ten tools, and the apps guide for a profile that builds apps');
+      t(nova?.status === 'connected' && nova.tools?.length === 18 && nova.tools.some((x) => x.name === 'apps_guide') && nova.tools.some((x) => x.name === 'add_heartbeat'),
+        'Claude Code connects the nova tool server with its eighteen tools for an admin: tasks, notes, Thought, Heartbeat and the apps guide');
     } finally { s.close(); }
   } catch (err) {
     t(false, `the task and note tools threw: ${err.message}`);
@@ -1443,4 +1447,185 @@ async function pushRoutes(a, b) {
   ws.send(JSON.stringify({ t: 'ping' }));
   check(!!(await next(ws, (m) => m.t === 'pong').catch(() => null)) && !ws.received.some((m) => m.t === 'error'), 'a tab can say it is in front');
   ws.close();
+}
+
+// ---- Heartbeat and the Train of Thought ---------------------------------------------
+// The rules for unattended runs, when schedules are due, the schedule and thought stores, and the
+// tools Nova gets in a chat and in a run. A real run needs a sign-in and quota, so this drives
+// the pieces directly, in this process, before the server starts.
+async function heartbeatChecks() {
+  const out = [];
+  const t = (ok, label) => out.push([!!ok, label]);
+  const { deleteProfileRows, renameProfileRows } = await import('../server/core/db.js');
+  q.addProfile.run('smoke-hb', hashSecret(PASSWORD), Date.now(), 'user', null);
+  q.addProfile.run('smoke-hb-view', hashSecret(PASSWORD), Date.now(), 'user', null);
+  q.setAccess.run(JSON.stringify({ brain: 'edit' }), 'smoke-hb'); // smoke-hb-view keeps the default, read
+  try {
+    const { decide, bashProblem } = await import('../server/heartbeat/policy.js');
+    const work = fs.mkdtempSync(path.join(tmp, 'hb-'));
+    fs.writeFileSync(path.join(work, 'existing.md'), 'old\n');
+    const run = { created: new Set(), cwd: work };
+    const ok = (tool, input = {}) => decide(tool, input, run).allow;
+    t(ok('Read', { file_path: 'existing.md' }) && ok('Grep', { pattern: 'x' }) && ok('WebFetch', { url: 'https://example.com' }) && ok('Task', {}),
+      'an unattended run may read, search, look things up and start sub-agents');
+    t(!ok('AskUserQuestion', { questions: [] }) && /record_thought/.test(decide('AskUserQuestion', {}, run).reason), 'an unattended run can\'t ask questions, and is told to record them instead');
+    t(ok('Write', { file_path: 'new.md' }) && ok('Edit', { file_path: 'new.md' }) && ok('Write', { file_path: path.join(work, 'new.md') }),
+      'an unattended run may create a file and keep working on it');
+    t(!ok('Write', { file_path: 'existing.md' }) && !ok('Edit', { file_path: 'existing.md' }) && !ok('MultiEdit', { file_path: 'existing.md' }),
+      'an unattended run can\'t overwrite or edit a file it didn\'t create');
+    const safe = ['ls -la', 'git status && git log --oneline -5', 'grep -ri heating notes | head -20', 'curl -s https://ha.local/api/states', 'find . -name "*.md"',
+      'cat a.md 2>/dev/null', 'git -C brain diff HEAD~1', 'curl -X GET https://x', 'sed -n 1,20p a.md'];
+    const risky = ['rm notes/a.md', 'mv a b', 'git push', 'git reset --hard', 'echo hi > a.md', 'find . -delete', 'sed -i s/a/b/ a.md', 'cat $(which x)',
+      'curl -d x=1 https://x', 'curl -XPOST https://x', 'curl -o out https://x', 'node -e 1', 'X=1 ls', 'ls &', 'git branch -D main', 'git -c alias.x=!rm x', 'git commit -m x', 'npm install'];
+    const wrongSafe = safe.filter((c) => bashProblem(c)), wrongRisky = risky.filter((c) => !bashProblem(c));
+    t(!wrongSafe.length, `read-only commands are allowed${wrongSafe.length ? ` (refused: ${wrongSafe.join(' ; ')})` : ''}`);
+    t(!wrongRisky.length, `commands that change things are held back${wrongRisky.length ? ` (allowed: ${wrongRisky.join(' ; ')})` : ''}`);
+    t(ok('mcp__nova__add_task') && ok('mcp__nova__record_thought') && !ok('mcp__nova__delete_task') && !ok('mcp__nova__delete_note') && !ok('mcp__nova__add_heartbeat'),
+      'an unattended run may add tasks and record thoughts, but not delete tasks or notes or change schedules');
+    t(ok('mcp__homeassistant__get_states') && !ok('mcp__claude_ai_Microsoft_365__outlook_send_mail') && !ok('mcp__x__deleteEvent') && !ok('CronCreate') && !ok('PowerShell', { command: 'ls' }),
+      'other tools are judged by what their names say, and unknown ones are held back');
+    t(decide('Bash', { command: 'rm a' }, run).what === 'Run: rm a', 'a held action says what Nova wanted to do');
+
+    const { sessionBase, startBackground } = await import('../server/chat/runner.js');
+    t(['CronCreate', 'ScheduleWakeup', 'RemoteTrigger'].every((n) => sessionBase('smoke-hb').disallowedTools.includes(n)),
+      'Claude Code\'s own scheduling tools are kept out of chats, so schedules go through Heartbeat');
+    // A run with the default model and effort sends its prompt (this smoke's Claude folder has no
+    // sign-in, so nothing is used up). It once failed here, writing an undefined model to the chat.
+    const bgRun = startBackground({ id: crypto.randomUUID(), profile: 'smoke-hb', background: { name: 'x', created: new Set(), held: [], recorded: 0, questions: [] } });
+    let sendErr = null;
+    try { bgRun.send('Smoke: do nothing.', crypto.randomUUID()); } catch (err) { sendErr = err; }
+    bgRun.close();
+    t(!sendErr && bgRun.model === null, `a scheduled run with the default model starts${sendErr ? ` (${sendErr.message})` : ''}`);
+
+    const s = await import('../server/heartbeat/schedules.js');
+    const sat =new Date(2026, 10, 14, 9, 0).getTime(); // a Saturday, 09:00
+    t(s.nextRun({ every_min: 60 }, sat) === sat + 3600000, 'an interval runs again that many minutes later');
+    const mon = new Date(s.nextRun({ at_time: '08:00', days: '1,2,3,4,5' }, sat));
+    t(mon.getDay() === 1 && mon.getHours() === 8 && mon.getMinutes() === 0 && s.nextRun({ at_time: '10:00', days: null }, sat) === sat + 3600000,
+      'a time of day runs next on one of its weekdays, in the server\'s time');
+    t(s.cadenceText({ every_min: 60 }) === 'Every hour' && s.cadenceText({ every_min: 90 }) === 'Every 90 minutes' &&
+      s.cadenceText({ at_time: '08:00', days: '1,2,3,4,5' }) === 'Weekdays at 08:00' && s.cadenceText({ at_time: '18:30', days: '1,4' }) === 'Mon, Thu at 18:30',
+      'a schedule\'s timing reads as words');
+
+    const mk = (body, opts) => { try { return s.createSchedule('smoke-hb', body, opts); } catch (err) { return { error: err }; } };
+    t(mk({ name: 'x', prompt: 'y', everyMinutes: 4 }).error?.status === 400 && mk({ name: 'x5', prompt: 'y', everyMinutes: 5 }).id, 'a schedule can repeat every 5 minutes, but no more often');
+    t(mk({ name: 'x', prompt: 'y', everyMinutes: 60, at: '08:00' }).error?.status === 400 && mk({ name: 'x', prompt: 'y', at: '25:00' }).error?.status === 400,
+      'a schedule needs exactly one valid timing');
+    t(mk({ name: '', prompt: 'y', everyMinutes: 60 }).error && mk({ name: 'x', prompt: ' ', everyMinutes: 60 }).error, 'a schedule needs a name and a prompt');
+    const made = mk({ name: 'Home check-in', prompt: 'Look at the last hour.', everyMinutes: 60 }, { by: 'nova', chatId: null });
+    t(made.id && made.createdBy === 'nova' && made.enabled && made.nextRun > Date.now() + 59 * 60000 && made.cadence === 'Every hour',
+      'a schedule Nova makes is stored, active, and first due an interval from now');
+    let viewErr = null;
+    try { s.createSchedule('smoke-hb-view', { name: 'x', prompt: 'y', everyMinutes: 60 }); } catch (err) { viewErr = err; }
+    t(viewErr?.status === 403 && s.listSchedules('smoke-hb-view').length === 0, 'a profile that can only view Core can\'t schedule, and sees only its own schedules');
+    let otherErr = null;
+    try { s.updateSchedule('smoke-a', made.id, { enabled: false }); } catch (err) { otherErr = err; }
+    t(otherErr?.status === 404, 'another profile can\'t change a schedule');
+    const paused = s.updateSchedule('smoke-hb', made.id, { enabled: false });
+    const resumed = s.updateSchedule('smoke-hb', made.id, { enabled: true });
+    t(!paused.enabled && paused.nextRun === null && resumed.enabled && resumed.nextRun > Date.now(), 'pausing a schedule stops it, and resuming counts from now');
+    const daily = s.updateSchedule('smoke-hb', made.id, { at: '07:30', days: ['sat', 'sun'] });
+    t(daily.cadence === 'Weekends at 07:30' && daily.everyMinutes === null, 'a schedule can change from an interval to a time of day');
+
+    const { novaTools, describeCall } = await import('../server/chat/tools.js');
+    const tools = (ctx) => new Map(novaTools('smoke-hb', ctx).map((d) => [d.name, d]));
+    const call = async (map, name, args) => { const r = await map.get(name).handler(args, {}); return { error: !!r.isError, text: r.content?.[0]?.text || '' }; };
+    const inChat = tools({ chatId: null });
+    t(['add_heartbeat', 'update_heartbeat', 'delete_heartbeat', 'list_heartbeats'].every((n) => inChat.has(n)), 'a profile with Core edit access can schedule from a chat');
+    t(describeCall('smoke-hb', 'mcp__nova__add_heartbeat', { name: 'HA', every_minutes: 60 }) === 'Schedule "HA", every hour, behind the scenes' &&
+      describeCall('smoke-hb', 'mcp__nova__update_heartbeat', { id: made.id, paused: true }) === 'Pause the schedule "Home check-in"' &&
+      describeCall('smoke-a', 'mcp__nova__delete_heartbeat', { id: made.id }) === 'Delete a schedule',
+    'schedule prompts say what will run and when, and never name another profile\'s schedule');
+    const viaTool = await call(inChat, 'add_heartbeat', { name: 'Via tool', prompt: 'p', every_minutes: 120 });
+    t(!viaTool.error && JSON.parse(viaTool.text).when === 'Every 2 hours', 'add_heartbeat schedules work');
+    const bg = { scheduleId: made.id, name: made.name, recorded: 0, questions: [] };
+    const inRun = tools({ chatId: 'run-chat', run: bg });
+    t(inRun.has('list_heartbeats') && !inRun.has('add_heartbeat') && !inRun.has('delete_heartbeat'), 'an unattended run can\'t make or change schedules');
+    const rec = await call(inRun, 'record_thought', { summary: 'Checked the house; heating ran late twice.', question: 'Shall we automate the heating?' });
+    t(!rec.error && bg.recorded === 1 && bg.questions[0] === 'Shall we automate the heating?', 'a run records its thought and question');
+
+    const th = await import('../server/thought/thoughts.js');
+    const list = th.listThoughts('smoke-hb').thoughts;
+    const entry = list.find((x) => x.summary.startsWith('Checked the house'));
+    t(entry?.source === 'heartbeat' && entry.scheduleName === 'Home check-in' && entry.status === 'open' && entry.chatId === 'run-chat',
+      'a run\'s thought is linked to its schedule and run, and its question waits');
+    const held = th.recordThought('smoke-hb', { kind: 'held', source: 'heartbeat', sourceId: made.id, chatId: 'run-chat', summary: 'Held back an action.', detail: '- Run: rm secret.txt' });
+    const seen = th.listThoughts('smoke-hb-view').thoughts.find((x) => x.id === held.id);
+    t(seen && !seen.mine && seen.detail === undefined && seen.chatId === undefined && seen.scheduleName === undefined,
+      'another profile sees a shared entry, but not its detail, its chat or its schedule\'s name');
+    t(th.openThoughtCount('smoke-hb') >= 2 && th.openThoughtCount('smoke-hb-view') === th.openThoughtCount('smoke-hb') - 1,
+      'the Core tab counts open questions for everyone, and held actions only for their own profile');
+    let reviewErr = null;
+    try { th.resolveThought('smoke-hb-view', held.id, 'reviewed'); } catch (err) { reviewErr = err; }
+    t(reviewErr?.status === 403 && th.resolveThought('smoke-hb-view', entry.id, 'answered').status === 'answered',
+      'anyone who can view Core may answer a question, but only its own profile reviews what was held back');
+    t(th.listThoughts('smoke-hb', { filter: 'open' }).thoughts.every((x) => x.status === 'open') &&
+      th.listThoughts('smoke-hb', { filter: 'held' }).thoughts.every((x) => x.kind === 'held'), 'the timeline filters to what\'s waiting, or what was held back');
+    let noAccess = null;
+    q.setAccess.run(JSON.stringify({ brain: 'none' }), 'smoke-hb-view');
+    try { th.listThoughts('smoke-hb-view'); } catch (err) { noAccess = err; }
+    t(noAccess?.status === 403 && !novaTools('smoke-hb-view').some((d) => d.name === 'thought'), 'a profile without Core access gets no timeline and no thought tools');
+
+    renameProfileRows('smoke-hb', 'smoke-hb2');
+    t(th.listThoughts('smoke-hb2').thoughts.find((x) => x.id === held.id)?.mine && q.heartbeats.all('smoke-hb2').length === 3, 'renaming a profile carries its schedules and thoughts');
+    deleteProfileRows('smoke-hb2');
+    t(q.heartbeats.all('smoke-hb2').length === 0 && q.thought.get(held.id), 'deleting a profile removes its schedules but keeps the shared timeline');
+
+    // A behind-the-scenes run for smoke-a, for the HTTP checks: it must stay out of the chat list.
+    globalThis.smokeRunChat = crypto.randomUUID();
+    q.addRunChat.run(globalThis.smokeRunChat, 'smoke-a', 'Smoke run', null, null, Date.now(), Date.now(), crypto.randomUUID());
+  } catch (err) {
+    t(false, `the Heartbeat checks threw: ${err.stack}`);
+  } finally {
+    deleteProfileRows('smoke-hb');
+    deleteProfileRows('smoke-hb2');
+    deleteProfileRows('smoke-hb-view');
+  }
+  return out;
+}
+
+// The Heartbeat and Thought routes: Core access, the profile's own schedules and runs only.
+// smoke-a is an admin, smoke-b a user who can view Core, smoke-c a user without Core access.
+async function heartbeatRoutes(a, b, c) {
+  const evil = 'http://evil.example';
+  const body = { name: 'Smoke schedule', prompt: 'Do nothing; this is a smoke test.', everyMinutes: 60, enabled: false };
+  const made = await http('POST', '/api/heartbeats', { cookie: a, body });
+  check(made.status === 200 && made.data.enabled === false && made.data.createdBy === 'you', 'an admin adds a schedule from the Heartbeat pane');
+  const id = made.data?.id;
+  check((await http('GET', '/api/heartbeats', { cookie: a })).data?.some((s) => s.id === id), 'the schedule is listed for its profile');
+  check((await http('GET', '/api/heartbeats', { cookie: b })).data?.length === 0, 'another profile doesn\'t see it');
+  await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { brain: 'read' } } }); // the brain checks above left it with edit
+  check((await http('POST', '/api/heartbeats', { cookie: b, body })).status === 403, 'a profile that can only view Core can\'t add a schedule');
+  await http('PATCH', '/api/profiles/smoke-b', { cookie: a, body: { access: { brain: 'edit' } } });
+  check((await http('GET', '/api/heartbeats', { cookie: c })).status === 403, 'a profile without Core access can\'t list schedules');
+  check((await http('PATCH', `/api/heartbeats/${id}`, { cookie: b, body: { enabled: true } })).status === 404 &&
+    (await http('DELETE', `/api/heartbeats/${id}`, { cookie: b })).status === 404 && (await http('POST', `/api/heartbeats/${id}/run`, { cookie: b })).status === 404,
+  'another profile can\'t change, delete or run it');
+  check((await http('POST', '/api/heartbeats', { cookie: a, origin: evil, body })).status === 403, 'a cross-origin schedule is refused');
+  const renamed = await http('PATCH', `/api/heartbeats/${id}`, { cookie: a, body: { name: 'Smoke schedule 2' } });
+  check(renamed.status === 200 && renamed.data.name === 'Smoke schedule 2' && renamed.data.enabled === false, 'a schedule is renamed and stays paused');
+  check((await http('POST', `/api/heartbeats/${id}/stop`, { cookie: a })).status === 409, 'stopping a schedule that isn\'t running says so');
+
+  const runId = globalThis.smokeRunChat;
+  check(!(await http('GET', '/api/chats', { cookie: a })).data?.some((x) => x.id === runId), 'a behind-the-scenes run stays out of the chat list');
+  const runView = await http('GET', `/api/heartbeat-runs/${runId}`, { cookie: a });
+  check(runView.status === 200 && Array.isArray(runView.data.messages), 'its profile can open the run\'s transcript');
+  check((await http('GET', `/api/heartbeat-runs/${runId}`, { cookie: b })).status === 404, 'another profile can\'t open the run');
+  const chatList = (await http('GET', '/api/chats', { cookie: a })).data || [];
+  if (chatList[0]) check((await http('GET', `/api/heartbeat-runs/${chatList[0].id}`, { cookie: a })).status === 404, 'an ordinary chat isn\'t a run');
+
+  const shared = await http('GET', '/api/thoughts', { cookie: b });
+  check(shared.status === 200 && shared.data.thoughts.some((x) => x.kind === 'held' && x.detail === undefined), 'the timeline is shared, without another profile\'s details');
+  check((await http('GET', '/api/thoughts', { cookie: c })).status === 403, 'a profile without Core access can\'t read the timeline');
+  const held = shared.data.thoughts.find((x) => x.kind === 'held');
+  if (held) {
+    check((await http('PATCH', `/api/thoughts/${held.id}`, { cookie: b, body: { status: 'reviewed' } })).status === 403, 'a user can\'t review another profile\'s held actions');
+    check((await http('PATCH', `/api/thoughts/${held.id}`, { cookie: a, body: { status: 'reviewed' } })).data?.status === 'reviewed', 'an admin can');
+    check((await http('PATCH', `/api/thoughts/${held.id}`, { cookie: a, origin: evil, body: { status: 'open' } })).status === 403, 'a cross-origin review is refused');
+  }
+  const badges = (await http('GET', '/api/badges?today=2026-10-03', { cookie: b })).data;
+  check(typeof badges?.brain === 'number' && !('brain' in ((await http('GET', '/api/badges?today=2026-10-03', { cookie: c })).data || {})),
+    'the Core tab counts what waits in Thought, only for profiles that can view it');
+  check((await http('DELETE', `/api/heartbeats/${id}`, { cookie: a })).status === 200 && !(await http('GET', '/api/heartbeats', { cookie: a })).data?.length,
+    'a schedule is deleted');
 }

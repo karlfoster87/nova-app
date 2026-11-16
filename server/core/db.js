@@ -1,5 +1,6 @@
 // SQLite index: profiles, sign-ins, chats and their categories, approvals and folders, tasks,
-// notes, attachments, profile pictures and push subscriptions. Transcripts stay in Claude Code's own session files.
+// notes, attachments, profile pictures, push subscriptions, Heartbeat schedules and the shared
+// Train of Thought. Transcripts stay in Claude Code's own session files.
 // Every statement lives in the q map below, grouped by area.
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
@@ -64,6 +65,22 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS push_subs_profile ON push_subs(profile);
   CREATE INDEX IF NOT EXISTS push_subs_login ON push_subs(login);
+  CREATE TABLE IF NOT EXISTS heartbeats (
+    id TEXT PRIMARY KEY, profile TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
+    every_min INTEGER, at_time TEXT, days TEXT, target_chat TEXT, model TEXT, effort TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1, next_run INTEGER, last_run INTEGER, last_status TEXT, last_chat TEXT,
+    runs INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_chat TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS heartbeats_profile ON heartbeats(profile, created_at);
+  CREATE INDEX IF NOT EXISTS heartbeats_due ON heartbeats(enabled, next_run);
+  CREATE TABLE IF NOT EXISTS thoughts (
+    id TEXT PRIMARY KEY, at INTEGER NOT NULL, profile TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL,
+    source_id TEXT, chat_id TEXT, summary TEXT NOT NULL, question TEXT, detail TEXT, status TEXT,
+    resolved_at INTEGER, resolved_by TEXT
+  );
+  CREATE INDEX IF NOT EXISTS thoughts_at ON thoughts(at DESC);
+  CREATE INDEX IF NOT EXISTS thoughts_open ON thoughts(status, at DESC);
+  CREATE INDEX IF NOT EXISTS thoughts_source ON thoughts(source_id, at DESC);
 `);
 
 // ---- Migrations ---------------------------------------------------------------
@@ -92,6 +109,9 @@ addColumn('chats', 'context_tokens', 'INTEGER'); // the context's size at that r
 addColumn('chats', 'handoff', 'TEXT');         // Nova's summary for carrying on in a fresh session
 addColumn('chats', 'handoff_at', 'INTEGER');
 addColumn('chats', 'handoff_cut', 'TEXT');     // JSON { session, at }: resume there, leaving the hidden handoff turn off the chain
+// A behind-the-scenes Heartbeat run is a chat of its own, kept out of the chat list (heartbeat/runs.js).
+addColumn('chats', 'origin', 'TEXT');          // null = a chat the user started; 'heartbeat' = a scheduled run
+addColumn('chats', 'origin_id', 'TEXT');       // the schedule it ran for
 
 // Rows from before chats were tied to a brain belong to whichever brain is active the
 // first time this runs.
@@ -119,7 +139,7 @@ export const q = {
   // Profiles and sign-ins. Names are unique ignoring case.
   profile: db.prepare('SELECT * FROM profiles WHERE name = ? COLLATE NOCASE'),
   profiles: scoped(`SELECT p.name, p.role, p.pin_hash IS NOT NULL AS has_pin, p.created_at,
-    (SELECT COUNT(*) FROM chats c WHERE c.profile = p.name AND c.brain = ?1) AS chat_count,
+    (SELECT COUNT(*) FROM chats c WHERE c.profile = p.name AND c.brain = ?1 AND c.origin IS NULL) AS chat_count,
     (SELECT updated_at FROM pictures pic WHERE pic.profile = p.name) AS picture FROM profiles p ORDER BY p.created_at`),
   adminCount: db.prepare("SELECT COUNT(*) AS n FROM profiles WHERE role = 'admin'"),
   addProfile: db.prepare('INSERT INTO profiles (name, pass_hash, created_at, role, pin_hash) VALUES (?, ?, ?, ?, ?)'),
@@ -139,8 +159,10 @@ export const q = {
   // Chats and categories, in the active brain.
   chat: scoped('SELECT * FROM chats WHERE id = ? AND brain = ?'),
   allChatIds: db.prepare('SELECT id FROM chats'), // every profile and brain: transcript move only
-  chats: scoped('SELECT id, title, model, effort, permission_mode, category_id, updated_at, active_at, context_tokens, CASE WHEN handoff IS NULL THEN NULL ELSE handoff_at END AS handoff_at FROM chats WHERE profile = ? AND brain = ? ORDER BY updated_at DESC LIMIT 500'),
+  chats: scoped('SELECT id, title, model, effort, permission_mode, category_id, updated_at, active_at, context_tokens, CASE WHEN handoff IS NULL THEN NULL ELSE handoff_at END AS handoff_at FROM chats WHERE profile = ? AND brain = ? AND origin IS NULL ORDER BY updated_at DESC LIMIT 500'),
   addChat: scoped('INSERT INTO chats (id, profile, title, model, effort, created_at, updated_at, category_id, brain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+  addRunChat: scoped("INSERT INTO chats (id, profile, title, model, effort, created_at, updated_at, origin, origin_id, brain) VALUES (?, ?, ?, ?, ?, ?, ?, 'heartbeat', ?, ?)"),
+  oldRunChats: db.prepare("SELECT id, profile FROM chats WHERE origin = 'heartbeat' AND created_at < ?"),
   touchChat: db.prepare('UPDATE chats SET updated_at = ?, model = ?, effort = ? WHERE id = ?'),
   chatActive: db.prepare('UPDATE chats SET active_at = ?, context_tokens = COALESCE(?, context_tokens) WHERE id = ?'),
   setChatContext: db.prepare('UPDATE chats SET context_tokens = ? WHERE id = ?'),
@@ -247,17 +269,53 @@ export const q = {
   addPushSub: db.prepare('INSERT OR REPLACE INTO push_subs (endpoint, profile, login, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?, ?)'),
   deletePushSub: db.prepare('DELETE FROM push_subs WHERE endpoint = ? AND profile = ?'),
   dropPushSub: db.prepare('DELETE FROM push_subs WHERE endpoint = ?'), // the push service says it's gone
-  dropLoginPushSubs: db.prepare('DELETE FROM push_subs WHERE login = ?')
+  dropLoginPushSubs: db.prepare('DELETE FROM push_subs WHERE login = ?'),
+
+  // Heartbeat schedules (heartbeat/schedules.js): each profile's own. The tick asks only for
+  // what is due, through the (enabled, next_run) index.
+  heartbeats: db.prepare('SELECT * FROM heartbeats WHERE profile = ? ORDER BY created_at'),
+  heartbeat: db.prepare('SELECT * FROM heartbeats WHERE id = ?'),
+  allHeartbeats: db.prepare('SELECT * FROM heartbeats WHERE enabled = 1'),
+  dueHeartbeats: db.prepare('SELECT * FROM heartbeats WHERE enabled = 1 AND next_run <= ? ORDER BY next_run LIMIT 20'),
+  addHeartbeat: db.prepare(`INSERT INTO heartbeats (id, profile, name, prompt, every_min, at_time, days, target_chat, model, effort,
+    enabled, next_run, created_by, created_chat, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  updateHeartbeat: db.prepare(`UPDATE heartbeats SET name = ?, prompt = ?, every_min = ?, at_time = ?, days = ?, target_chat = ?, model = ?,
+    effort = ?, enabled = ?, next_run = ?, updated_at = ? WHERE id = ? AND profile = ?`),
+  setHeartbeatNext: db.prepare('UPDATE heartbeats SET next_run = ? WHERE id = ?'),
+  heartbeatRan: db.prepare('UPDATE heartbeats SET last_run = ?, last_status = ?, last_chat = COALESCE(?, last_chat), runs = runs + ? WHERE id = ?'),
+  deleteHeartbeat: db.prepare('DELETE FROM heartbeats WHERE id = ? AND profile = ?'),
+  untargetChat: db.prepare('UPDATE heartbeats SET target_chat = NULL, enabled = 0 WHERE target_chat = ? AND profile = ?'),
+
+  // The Train of Thought (thought/thoughts.js): one timeline shared by every profile with brain
+  // access, newest first. detail is shown only to the profile the entry came from.
+  // ?1 before, ?2 status, ?3 kind, ?4 schedule, ?5 since, ?6 only with a question, ?7 limit; null = any
+  thoughts: db.prepare(`SELECT * FROM thoughts WHERE at < ?1 AND (?2 IS NULL OR status = ?2) AND (?3 IS NULL OR kind = ?3)
+    AND (?4 IS NULL OR source_id = ?4) AND (?5 IS NULL OR at >= ?5) AND (?6 = 0 OR question IS NOT NULL) ORDER BY at DESC LIMIT ?7`),
+  thought: db.prepare('SELECT * FROM thoughts WHERE id = ?'),
+  addThought: db.prepare(`INSERT INTO thoughts (id, at, profile, kind, source, source_id, chat_id, summary, question, detail, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  resolveThought: db.prepare('UPDATE thoughts SET status = ?, resolved_at = ?, resolved_by = ? WHERE id = ?'),
+  openThoughts: db.prepare("SELECT COUNT(*) AS n FROM thoughts WHERE status = 'open' AND (kind = 'thought' OR profile = ?)"),
+  runThoughts: db.prepare("SELECT COUNT(*) AS n FROM thoughts WHERE chat_id = ? AND source = 'heartbeat'"),
+  pruneThoughts: db.prepare("DELETE FROM thoughts WHERE at < ? AND (status IS NULL OR status != 'open')"),
+  renameThoughts: db.prepare('UPDATE thoughts SET profile = ? WHERE profile = ?'),
+  renameResolver: db.prepare('UPDATE thoughts SET resolved_by = ? WHERE resolved_by = ?')
 };
 
 // Every table holding a profile's rows, so renaming or removing a profile covers them all in
 // one place. A new per-profile table goes in this list. Callers run these in a transaction.
-const PROFILE_TABLES = ['logins', 'chats', 'categories', 'approvals', 'folders', 'tasks', 'notes', 'uploads', 'pictures', 'push_subs'];
+// The Train of Thought is shared and outlives a profile: a rename relabels its entries, a delete keeps them.
+const PROFILE_TABLES = ['logins', 'chats', 'categories', 'approvals', 'folders', 'tasks', 'notes', 'uploads', 'pictures', 'push_subs', 'heartbeats'];
 const renames = PROFILE_TABLES.map((t) => db.prepare(`UPDATE ${t} SET profile = ? WHERE profile = ?`));
 const deletes = PROFILE_TABLES.map((t) => db.prepare(`DELETE FROM ${t} WHERE profile = ?`));
 const renameRow = db.prepare('UPDATE profiles SET name = ? WHERE name = ?');
 const deleteRow = db.prepare('DELETE FROM profiles WHERE name = ?');
-export const renameProfileRows = (oldName, newName) => { renameRow.run(newName, oldName); for (const s of renames) s.run(newName, oldName); };
+export const renameProfileRows = (oldName, newName) => {
+  renameRow.run(newName, oldName);
+  for (const s of renames) s.run(newName, oldName);
+  q.renameThoughts.run(newName, oldName);
+  q.renameResolver.run(newName, oldName);
+};
 export const deleteProfileRows = (name) => { for (const s of deletes) s.run(name); deleteRow.run(name); };
 
 // Runs fn inside one transaction, rolling back if it throws.

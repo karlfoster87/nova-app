@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.11.1 · Node 22.15+ · five dependencies · no build step
+Version 0.12.0 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -32,7 +32,17 @@ Read and edit the notes Nova works from. Markdown renders with `[[wiki links]]`,
 
 ### Soul: how Nova comes across
 
-The Soul sets Nova's character, style, tone and friendliness for every chat, in every profile: warm and chatty, crisp and businesslike, or whatever suits your household or team. Open it from the Core tab, the last of the tabs, which gathers the brain, the Soul, Heartbeat and Thought behind a switch at the top of its sidebar. An admin writes it in plain words, or markdown, and everyone with brain access can read it but not change it. New chats use it straight away, and open chats pick it up the next time they go quiet. It's sent with every chat, so it's kept short (6,000 characters at most), and it never changes Nova's name or what Nova is allowed to do. It's stored in the data folder as `soul.md`, outside the brain, so neither Nova nor a brain edit can change it. Heartbeat (scheduled and triggered work) and Thought (a timeline of what Nova has done) are on their way.
+The Soul sets Nova's character, style, tone and friendliness for every chat, in every profile: warm and chatty, crisp and businesslike, or whatever suits your household or team. Open it from the Core tab, the last of the tabs, which gathers the brain, the Soul, Heartbeat and Thought behind a switch at the top of its sidebar. An admin writes it in plain words, or markdown, and everyone with brain access can read it but not change it. New chats use it straight away, and open chats pick it up the next time they go quiet. It's sent with every chat, so it's kept short (6,000 characters at most), and it never changes Nova's name or what Nova is allowed to do. It's stored in the data folder as `soul.md`, outside the brain, so neither Nova nor a brain edit can change it.
+
+### Heartbeat: work Nova does by itself
+
+Ask Nova to check on something regularly ("every hour, look at what happened in Home Assistant and tell me if there's anything worth automating") and it sets up a schedule; or add one yourself in the Heartbeat pane of the Core tab. A schedule repeats every so many minutes or hours, or runs at a time of day on the weekdays you pick (in the server's time). Each run happens behind the scenes in a fresh session, so it doesn't fill your chats, and can read what earlier runs noted. Or a schedule can send its prompt into a chat of your choice instead.
+
+Runs behind the scenes are non-destructive: Nova may read, search, look things up, add tasks and create new files, but anything that would delete, overwrite, change an existing file, send something or run a command that changes things is held back and listed in Thought for you to review. Nova can't ask you anything mid-run; it records the question instead. The Heartbeat pane lists every schedule with its next run, its prompt and its recent runs, and lets you run, stop, pause, edit or delete it, and read any run's transcript, without asking Nova. Profiles with edit access to Core manage their own schedules; runs pause while you're signed out of Claude or plan usage is high.
+
+### Thought: Nova's train of thought
+
+A shared timeline of what Nova has done, when and why, a line or two at a time: Heartbeat runs, tasks you confirm as finished, and project commits. When Nova wants your view on something, the question waits here (and on the Core tab's badge, with a push notification) until you discuss it with Nova, which opens a new chat with the question ready, mark it answered or dismiss it. Everyone with access to Core sees the timeline; an entry's details and links show only for the profile it came from, and only that profile or an admin can review what its runs held back. Nova can read the timeline too, so it remembers what it did and what it asked.
 
 ### Talk to it
 
@@ -135,7 +145,7 @@ For a tight setup, limit the container's outbound traffic to Anthropic and Claud
 ## Good to know
 
 - **Your data** lives in `data/` (or `/opt/nova/data`): `config.json`, the database, Nova's own Claude sign-in and chat transcripts, attachments and logs. Keep it private, backups included.
-- **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `chats.coldResume` (`fresh`, `ask` or `full`), `chats.handoffMinutes` (50), `chats.handoffMinTokens` (30000), `chats.handoffAtUsage` (85%), `chats.autoCompactPercent` (60), `chats.maxToolResultChars` (20000), `updates.checkHours` (24, or 0 to stop checking), `paths.appsDir` (`data/apps`), and for app backends `apps.timeoutSec` (15) and `apps.memoryMB` (256).
+- **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `chats.coldResume` (`fresh`, `ask` or `full`), `chats.handoffMinutes` (50), `chats.handoffMinTokens` (30000), `chats.handoffAtUsage` (85%), `chats.autoCompactPercent` (60), `chats.maxToolResultChars` (20000), `updates.checkHours` (24, or 0 to stop checking), `paths.appsDir` (`data/apps`), for app backends `apps.timeoutSec` (15) and `apps.memoryMB` (256), and for Heartbeat `heartbeat.enabled` (true), `heartbeat.maxConcurrent` (2 runs at once), `heartbeat.minMinutes` (5), `heartbeat.maxRunMinutes` (15), `heartbeat.pauseAtUsage` (90%), `heartbeat.keepRunsDays` (30) and `thought.keepDays` (180).
 - **Security:** every request is checked against the signed-in profile, passwords and PINs are hashed with scrypt, sessions are HttpOnly and SameSite=Strict, a strict Content Security Policy is in place, and chat output is sanitised before it's shown. Nova's chats act as the user running Nova, so in a container, the container is the boundary.
 
 ## Under the hood

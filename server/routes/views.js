@@ -6,6 +6,7 @@ import { readJson } from '../http/respond.js';
 import { can } from '../accounts/access.js';
 import { listTasks, tasksLeftToday, createTask, updateTask, moveTask, deleteTask } from '../views/tasks.js';
 import { listNotes, activeNoteCount, createNote, updateNote, moveNote, deleteNote, isSharedNote } from '../views/notes.js';
+import { openThoughtCount } from '../thought/thoughts.js';
 
 const UUID = '([0-9a-f-]{36})';
 const TASK = new RegExp(`^/api/tasks/${UUID}$`);
@@ -31,6 +32,7 @@ export default function viewRoutes(api) {
     const out = {};
     if (can(profile, 'tasks', 'read')) out.tasks = tasksLeftToday(profile, url.searchParams.get('today'));
     if (can(profile, 'notes', 'read')) out.notes = activeNoteCount(profile);
+    if (can(profile, 'brain', 'read')) out.brain = openThoughtCount(profile); // the Core tab: questions and held actions waiting in Thought
     return out;
   });
 

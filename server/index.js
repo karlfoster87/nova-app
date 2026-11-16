@@ -1,7 +1,7 @@
 // Nova server: the browser app, a JSON API and one WebSocket per browser tab. This file only
 // wires the parts together. The API's routes are listed by area in routes/, the WebSocket
 // protocol is in ws.js, and each area's logic has its own folder: accounts, chat, claude,
-// brain, views, updates and push, on top of core (config, database, shared helpers) and http.
+// brain, views, updates, push, heartbeat and thought, on top of core (config, database, shared helpers) and http.
 // server/launcher.js runs this file; keep its path.
 import http from 'node:http';
 import { config } from './core/config.js';
@@ -32,10 +32,12 @@ import searchRoutes from './routes/search.js';
 import appRoutes from './routes/apps.js';
 import soulRoutes from './routes/soul.js';
 import pushRoutes from './routes/push.js';
+import heartbeatRoutes from './routes/heartbeat.js';
+import { startHeartbeats } from './heartbeat/runs.js';
 
 const open = createRouter(); // routes that need no session: health, sign-in, brain pages and running apps (own tokens)
 const api = createRouter();  // everything else, for a signed-in profile
-for (const register of [authRoutes, profileRoutes, chatRoutes, permissionRoutes, brainRoutes, viewRoutes, settingsRoutes, updateRoutes, voiceRoutes, searchRoutes, appRoutes, soulRoutes, pushRoutes]) {
+for (const register of [authRoutes, profileRoutes, chatRoutes, permissionRoutes, brainRoutes, viewRoutes, settingsRoutes, updateRoutes, voiceRoutes, searchRoutes, appRoutes, soulRoutes, pushRoutes, heartbeatRoutes]) {
   register(api, open);
 }
 
@@ -81,4 +83,5 @@ server.listen(config.server.port, config.server.host, () => {
   sweepUploads();
   scheduleChecks();
   scheduleAppChecks();
+  startHeartbeats();
 });

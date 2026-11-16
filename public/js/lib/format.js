@@ -7,7 +7,9 @@ export const fileSize = (b) => (b < 1024 ? `${b} ${b === 1 ? 'byte' : 'bytes'}` 
 // do, other MCP tools (mcp__server__tool) as "tool (server)", built-in tools as they are.
 const NOVA_TOOLS = {
   list_tasks: 'List tasks', add_task: 'Add task', update_task: 'Update task', move_task: 'Move task', delete_task: 'Delete task',
-  list_notes: 'List notes', add_note: 'Add note', update_note: 'Update note', move_note: 'Move note', delete_note: 'Delete note'
+  list_notes: 'List notes', add_note: 'Add note', update_note: 'Update note', move_note: 'Move note', delete_note: 'Delete note',
+  thought: 'Read Thought', record_thought: 'Record a thought', resolve_question: 'Settle a question',
+  list_heartbeats: 'List schedules', add_heartbeat: 'Add schedule', update_heartbeat: 'Change schedule', delete_heartbeat: 'Delete schedule'
 };
 export function toolLabel(name = '') {
   const m = /^mcp__(.+?)__(.+)$/.exec(name);

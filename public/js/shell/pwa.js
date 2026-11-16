@@ -134,7 +134,10 @@ export function initPwa(ctx) {
 
   if (canPush) {
     // A click on a notification while a Nova window is open (sw.js asks that window).
-    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.t === 'open_chat') ctx.goToChat(e.data.chatId); });
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data?.t === 'open_chat') ctx.goToChat(e.data.chatId);
+      else if (e.data?.t === 'open_route' && /^[a-z]+$/.test(e.data.route || '')) ctx.route(`#${e.data.route}`);
+    });
     // Renew the subscription on every start: it ties this browser to whoever is signed in now,
     // and replaces one the browser or a new server key ended.
     if (wanted()) subscribePush().catch((err) => console.warn('Push notifications unavailable:', err.message));

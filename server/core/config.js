@@ -99,6 +99,20 @@ const defaults = {
     maxUploadMB: 100,         // per uploaded file
     trashDir: '.trash'        // deleted files and folders move here (as Obsidian does); always hidden
   },
+  heartbeat: {
+    // Work Nova does on a schedule without being asked (heartbeat/). Unattended runs may read and
+    // create, but anything destructive is held back for review in the Train of Thought.
+    enabled: true,        // false: no schedule starts (Run now still works)
+    maxConcurrent: 2,     // runs at once, across every profile; a due run waits for a free place
+    minMinutes: 5,        // the shortest interval a schedule may repeat at
+    maxRunMinutes: 15,    // a run still going after this is stopped
+    pauseAtUsage: 90,     // runs are skipped while a plan window is fuller than this percentage; 0 = never skip
+    effort: 'medium',     // effort for runs whose schedule doesn't choose one
+    keepRunsDays: 30      // behind-the-scenes run transcripts older than this are deleted
+  },
+  thought: {
+    keepDays: 180         // Train of Thought entries older than this are deleted, except questions still open
+  },
   security: {
     sessionDays: 30,
     maxAttempts: 5,       // failed passwords or PINs per profile...

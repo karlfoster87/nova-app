@@ -11,27 +11,30 @@ self.addEventListener('push', (e) => {
   let data = {};
   try { data = e.data?.json() || {}; } catch {}
   const chatId = typeof data.chatId === 'string' ? data.chatId : null;
+  // A place in Nova rather than a chat (the Train of Thought, for a Heartbeat run's question).
+  const route = typeof data.route === 'string' && /^[a-z]+$/.test(data.route) ? data.route : null;
   e.waitUntil(self.registration.showNotification(data.title || 'Nova', {
     body: data.body || '',
     // One per chat, as the page's own notifications do: a newer alert replaces the last.
-    tag: chatId ? `nova-chat-${chatId}` : 'nova',
+    tag: chatId ? `nova-chat-${chatId}` : route ? `nova-${route}` : 'nova',
     icon: '/icons/icon-192.png',
-    data: { chatId }
+    data: { chatId, route }
   }));
 });
 
 // Focus an open Nova window and ask it to open the chat; with none open, start one at the chat.
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const chatId = e.notification.data?.chatId;
+  const { chatId, route } = e.notification.data || {};
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const win = wins.find((w) => new URL(w.url).origin === self.location.origin);
     if (win) {
       await win.focus().catch(() => {});
       if (chatId) win.postMessage({ t: 'open_chat', chatId });
+      else if (route) win.postMessage({ t: 'open_route', route });
       return;
     }
-    await self.clients.openWindow(chatId ? `/#chats/${encodeURIComponent(chatId)}` : '/');
+    await self.clients.openWindow(chatId ? `/#chats/${encodeURIComponent(chatId)}` : route ? `/#${route}` : '/');
   })());
 });

@@ -81,6 +81,10 @@ function noteUsage(limits) {
 
 function broadcast() { hub.toAll({ t: 'meta', meta: publicMeta() }); }
 
+// How full the fullest plan window is now, as a percentage (0 before the first snapshot). Heartbeat
+// runs are skipped above heartbeat.pauseAtUsage.
+export const planUsage = () => fullest(state.usage?.windows);
+
 // What supportedModels() said about one model, or undefined before it has answered.
 export const modelInfo = (value) => state.models.find((m) => m.value === value);
 

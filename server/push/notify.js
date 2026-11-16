@@ -138,6 +138,20 @@ export function pushBody(kind, info = {}) {
   return body.length > 240 ? `${body.slice(0, 239)}…` : body;
 }
 
+// An alert that isn't about one chat: a question or held-back action from an unattended Heartbeat
+// run. route is the place in Nova a click opens ('thought'). Never throws, and like chat alerts it
+// stays quiet while one of the profile's windows is in front, where the Core tab's count shows it.
+export function pushNotice(profile, { title, body, route }) {
+  try {
+    if (hub.inFront(profile)) return;
+    const subs = q.pushSubs.all(profile, Date.now());
+    const text = String(body || '');
+    for (const sub of subs) deliver(sub, { title, body: text.length > 240 ? `${text.slice(0, 239)}…` : text, route }, 'normal');
+  } catch (err) {
+    console.error('Push notification failed:', err.message);
+  }
+}
+
 // Called by the chat runner. Never throws: an alert that can't go is only logged.
 export function pushChatEvent(profile, chatId, kind, info = {}) {
   try {

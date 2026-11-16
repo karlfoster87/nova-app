@@ -119,9 +119,10 @@ function onServer(m) {
       refreshBadges(); // this tab's own changes move the counts too
       if (m.from !== TAB_ID) for (const v of views.values()) v.onServer?.(m);
       return;
-    // An app was added, changed or removed (here, in another tab, or by Nova's tools).
-    // An app was added, changed or removed, or an admin saved the Soul.
-    case 'apps_changed': case 'soul_changed': for (const v of views.values()) v.onServer?.(m); return;
+    // An app was added, changed or removed (here, in another tab, or by Nova's tools), an admin
+    // saved the Soul, a Heartbeat schedule changed or ran, or the Train of Thought gained or settled an entry.
+    case 'thought_changed': refreshBadges(); // falls through: the Core tab counts what waits in Thought
+    case 'apps_changed': case 'soul_changed': case 'heartbeat_changed': for (const v of views.values()) v.onServer?.(m); return;
     case 'mode': {
       const chat = state.chats.find((c) => c.id === m.chatId);
       if (chat) chat.permission_mode = m.mode;

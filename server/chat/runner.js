@@ -16,6 +16,7 @@ import { HANDOFF_REQUEST, warmHandoff, usageTokens, bigChat, sessionOf, cutFor }
 import { can } from '../accounts/access.js';
 import { soulPrompt } from '../soul/soul.js';
 import { pushChatEvent } from '../push/notify.js';
+import { decide } from '../heartbeat/policy.js';
 
 // Message types forwarded to the browser. Everything else stays server-side.
 const FORWARD = new Set([
@@ -39,9 +40,14 @@ export function sessionBase(profile) {
     cwd: config.paths.brainDir,
     additionalDirectories: [profileDir(profile), uploads, ...folderPaths(profile), ...(buildsApps(profile) ? [appsFolder()] : [])],
     settingSources: config.claude.settingSources,
+    // Claude Code's own scheduling lives only as long as the chat's process, which Nova stops
+    // when a chat goes quiet, so a "cron job" made with it would silently never run. Scheduled
+    // work is Heartbeat's (add_heartbeat in tools.js), and these are kept out of reach.
+    disallowedTools: SCHEDULING_TOOLS,
     env: agentEnv()
   };
 }
+const SCHEDULING_TOOLS = ['CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup', 'RemoteTrigger'];
 
 // Profiles with Apps edit access can have Nova build apps: the apps folder joins the chat's
 // folders, and the system prompt says how an app is laid out and how to link to one.
@@ -77,6 +83,48 @@ const trimHook = async (input) => {
   return updatedToolOutput ? { hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput } } : {};
 };
 
+// ---- The Train of Thought and Heartbeat ----------------------------------------------
+// Profiles with Core access get Nova's thought and schedule tools (tools.js). When to look at the
+// timeline is application behaviour, so it's said here rather than in the Soul. Entries are
+// read only when needed, never put into every chat.
+const keepsThoughts = (profile) => can(profile, 'brain', 'read');
+const thoughtNote = (profile) => ' Nova keeps a Train of Thought, a timeline shared by everyone in this Nova of what you have done and ' +
+  'questions you want to put to the user later. Look at it with the thought tool when the user asks what you have been doing, ' +
+  'refers to something you noticed or asked earlier, or when earlier scheduled work would help. Record a one-line entry with ' +
+  'record_thought when you finish a task the user confirms is done, or commit a project, and mark a question answered with ' +
+  'resolve_question once the user has answered it. ' +
+  'Scheduling is done only through Nova\'s Heartbeat. Whenever the user asks for something to happen regularly, at a set time, ' +
+  'later, or "every hour/day/morning" (checking on something, a recurring summary, a reminder), ' +
+  (can(profile, 'brain', 'edit') ? 'create it with add_heartbeat, and change or remove schedules with update_heartbeat and delete_heartbeat; '
+    : 'say this profile can\'t schedule work, and that someone with edit access to Core can; ') +
+  'list_heartbeats shows what exists. Never use cron, ' +
+  'crontab, the Windows Task Scheduler, systemd timers, a /loop or /schedule command, a script that sleeps in a loop, or any other ' +
+  'scheduler for this: they are invisible to the user in Nova, and Heartbeat runs survive restarts and show in the Heartbeat pane. ' +
+  'Write the schedule\'s prompt so it stands on its own, since each run starts fresh.';
+
+// A commit is one of the moments a thought is recorded. Claude Code reports a successful
+// "git commit" with a line like "[main 1a2b3c4] message", so that is what's looked for.
+const commitHook = async (input) => {
+  const out = input.tool_response;
+  const stdout = typeof out === 'object' && out ? String(out.stdout || '') : String(out || '');
+  if (!/\bgit\b[^|;&]*\bcommit\b/.test(String(input.tool_input?.command || '')) || !/^\[[^\]\n]+ [0-9a-f]{7,}\]/m.test(stdout)) return {};
+  return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: 'Nova note: a commit was just made. Record it in the Train ' +
+    'of Thought with record_thought (kind commit): one generic line naming the project and the kind of change, nothing personal.' } };
+};
+
+// The fixed instructions for an unattended Heartbeat run (heartbeat/runs.js). The run's own
+// message names the schedule and says what it asks for.
+const runNote = (name) => `\n\n# Heartbeat run\nThis session is an unattended Heartbeat run of the schedule "${name}": Nova started it ` +
+  'on its timetable, and nobody is watching. There are no permission prompts. You may read anything you can reach, search, look ' +
+  'things up, use read-only commands, and create new files; deleting, moving, overwriting or editing files you didn\'t create in ' +
+  'this run, commands that change things, and deleting tasks or notes are held back for the user to review, so don\'t try to work ' +
+  'round them. Don\'t ask the user questions; there is no one to answer. First call the thought tool with this schedule\'s id to ' +
+  'see what earlier runs noted, so you don\'t repeat yourself. Finish by calling record_thought once: a one-line summary of what you ' +
+  'did or found, and, only if there is something worth the user\'s attention (a pattern worth automating, a problem, a decision ' +
+  'for them), a short question for them to pick up later. If nothing is worth noting, say so in the summary. The timeline is ' +
+  'shared with everyone in this Nova, so keep the summary and question generic: no personal details, quotes, file contents, ' +
+  'credentials or figures that would be private.';
+
 // Commands Claude Code says only make sense in its own terminal (exit, statusline and the like),
 // from the latest chat that started. The composer leaves them out.
 export const terminalCommands = new Set();
@@ -101,10 +149,13 @@ class InputQueue {
 }
 
 export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes through runnerFor
-  constructor({ id, session, profile, model, effort, mode, isNew, resumeAt, contextTokens }) {
+  constructor({ id, session, profile, model, effort, mode, isNew, resumeAt, contextTokens, background = null }) {
     // id: the Nova chat. session: the Claude Code session it continues, the same id until the
-    // chat first continues in a fresh session (handoff.js).
-    Object.assign(this, { id, session, profile, model, effort, mode });
+    // chat first continues in a fresh session (handoff.js). background: an unattended Heartbeat
+    // run (heartbeat/runs.js): { scheduleId, name, created, held, recorded, questions, onResult }.
+    // It tells no tab anything, asks nothing, and policy.js decides each tool call.
+    Object.assign(this, { id, session, profile, model, effort, mode, background });
+    if (background) this.handoffTried = true; // a run is short and never resumed
     this.state = 'idle';
     this.contextTokens = contextTokens ?? null; // the context's size at the last reply, for handoffs
     this.hidden = null; // the handoff turn in progress: { resolve, parts, cancelled }
@@ -129,14 +180,22 @@ export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes thr
           `You are working under the "${profile}" profile. ` +
           `Notes specific to this profile live in ${profileDir(profile)}; read them when context about the profile would help.` +
           (buildsApps(profile) ? appsNote() : '') +
+          (keepsThoughts(profile) ? thoughtNote(profile) : '') +
+          (background ? runNote(background.name) : '') +
           soulPrompt() // the admin's Soul, last, so it can't come before who Nova is
       },
       includePartialMessages: true,
-      canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts),
-      hooks: { PostToolUse: [{ matcher: 'Bash|Read', hooks: [trimHook] }] }
+      canUseTool: (toolName, input, opts) => (background ? this.decideUnattended(toolName, input, opts) : this.askPermission(toolName, input, opts)),
+      hooks: {
+        PostToolUse: [{ matcher: 'Bash|Read', hooks: [trimHook] }, ...(keepsThoughts(profile) ? [{ matcher: 'Bash', hooks: [commitHook] }] : [])],
+        // Before Claude Code's own permission rules, so a shared "always allow" can't let a
+        // destructive call through in a run nobody is watching.
+        ...(background ? { PreToolUse: [{ hooks: [(input) => this.policyHook(input)] }] } : {})
+      }
     };
-    // The profile's tasks and sticky notes, and the apps guide, as tools (tools.js). Reading them never asks.
-    const nova = novaServer(profile, buildsApps(profile));
+    // The profile's tasks, sticky notes, schedules and Train of Thought, and the apps guide, as
+    // tools (tools.js). Reading them never asks.
+    const nova = novaServer(profile, { apps: buildsApps(profile), chatId: id, run: background });
     if (nova) Object.assign(options, { mcpServers: { nova }, allowedTools: READ_TOOLS });
     if (model) options.model = model;
     if (effort) options.effort = effort;
@@ -147,7 +206,7 @@ export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes thr
     if (config.models.showThinking && modelInfo(model || 'default')?.supportsAdaptiveThinking === true) {
       options.thinking = { type: 'adaptive', display: 'summarized' };
     }
-    if (mode) options.permissionMode = mode;
+    if (mode && !background) options.permissionMode = mode;
     if (isNew) options.sessionId = session; else options.resume = session;
     // An edited message: carry on from the entry before it, leaving the rest off the chain. The
     // same after a handoff, which leaves its hidden turn off the chain.
@@ -157,7 +216,8 @@ export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes thr
     this.done = this.loop();
   }
 
-  emit(payload) { hub.toProfile(this.profile, { chatId: this.id, ...payload }); }
+  // A behind-the-scenes run has no tab watching it; the Heartbeat pane hears about it from runs.js.
+  emit(payload) { if (!this.background) hub.toProfile(this.profile, { chatId: this.id, ...payload }); }
 
   setState(state) {
     this.state = state;
@@ -190,7 +250,8 @@ export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes thr
         if (FORWARD.has(msg.type)) this.emit({ t: 'sdk', msg });
         if (msg.type === 'result') {
           this.inTurn = false;
-          if (!msg.parent_tool_use_id) {
+          if (!msg.parent_tool_use_id && this.background) this.background.onResult?.(msg);
+          else if (!msg.parent_tool_use_id) {
             const ok = !msg.subtype || msg.subtype === 'success';
             pushChatEvent(this.profile, this.id, ok ? 'done' : 'stopped', ok ? { text: msg.result } : { reason: String(msg.subtype).replace(/_/g, ' ') });
           }
@@ -350,6 +411,32 @@ export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes thr
     await this.handoffDone;
   }
 
+  // ---- Unattended runs ----------------------------------------------------------
+  // The same rules twice (policy.js): the hook comes first, before Claude Code's settings rules;
+  // canUseTool covers whatever Claude Code still asks about, such as a path outside the folders.
+  held(d) {
+    const b = this.background;
+    if (b.held.length < 20 && !b.held.includes(d.what)) b.held.push(d.what);
+  }
+
+  policyHook(input) {
+    const d = decide(input.tool_name, input.tool_input, { created: this.background.created, cwd: config.paths.brainDir });
+    if (d.allow) return {};
+    this.held(d);
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: d.reason } };
+  }
+
+  decideUnattended(toolName, input, opts) {
+    if (opts.blockedPath) {
+      this.held({ what: `Use ${toolName} outside its folders: ${opts.blockedPath}` });
+      return Promise.resolve({ behavior: 'deny', message: 'Held back: that path is outside the folders this run may use. It has been noted for the user to review.' });
+    }
+    const d = decide(toolName, input, { created: this.background.created, cwd: config.paths.brainDir });
+    if (d.allow) return Promise.resolve({ behavior: 'allow', updatedInput: input });
+    this.held(d);
+    return Promise.resolve({ behavior: 'deny', message: d.reason });
+  }
+
   // Called by the SDK whenever a tool needs approval. AskUserQuestion is routed
   // through the same path; its answers go back as updatedInput.answers.
   askPermission(toolName, input, opts) {
@@ -472,6 +559,15 @@ export function runnerFor(row, { model, effort, mode }, rewind = null) {
       mode: mode || row.permission_mode || undefined, isNew, resumeAt: resumeAt || undefined, contextTokens: row.context_tokens });
     registry.set(row.id, runner);
   }
+  return runner;
+}
+
+// An unattended Heartbeat run (heartbeat/runs.js): a fresh session in its own hidden chat. It's
+// in the registry like any chat, so restarts and updates wait while it works (busyRunners).
+export function startBackground({ id, profile, model, effort, background }) {
+  // null, not undefined, for "the default": both are written to the chat's row as it runs.
+  const runner = new ChatRunner({ id, session: id, profile, model: model || null, effort: effort || null, isNew: true, background });
+  registry.set(id, runner);
   return runner;
 }
 

@@ -74,6 +74,8 @@ export function deleteChat(profile, id) {
   existingRunner(profile, id)?.close();
   q.deleteChat.run(id, profile);
   delivered.delete(id);
+  // A schedule that sent its prompt to this chat is paused, not left pointing at nothing.
+  if (q.untargetChat.run(id, profile).changes) hub.toProfile(profile, { t: 'heartbeat_changed' });
   hub.toProfile(profile, { t: 'chats_changed', deleted: id });
 }
 

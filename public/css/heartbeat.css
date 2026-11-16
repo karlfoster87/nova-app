@@ -1,0 +1,71 @@
+/* The Heartbeat pane in the Core tab: the schedule list, a schedule's details and recent runs, its form, and a run's transcript. */
+/* ---- Sidebar ----------------------------------------------------------- */
+.hb-list { flex: 0 1 auto; }
+.hb-item.paused > span { opacity: 0.6; }
+.hb-item .hb-running { color: var(--accent); }
+.hb-item .dot { left: 20px; }
+.hb-about { margin-top: auto; }
+
+/* ---- Shared bits ------------------------------------------------------- */
+.link-btn { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-size: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.link-btn:hover { text-shadow: 0 0 8px var(--glow); }
+.brain-actions .text-btn, .brain-actions .stop-btn { white-space: nowrap; }
+.brain-actions .btn-icon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- A schedule -------------------------------------------------------- */
+.hb-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.hb-head h2 { margin: 0; font: 700 16px/1.3 var(--display); letter-spacing: 0.12em; color: var(--accent); text-shadow: 0 0 10px var(--glow); overflow-wrap: anywhere; }
+.hb-chip {
+  padding: 1px 8px; border: 1px solid var(--line-bright); border-radius: 999px; color: var(--ok); border-color: var(--ok);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; line-height: 16px;
+}
+.hb-chip.on { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px -2px var(--glow); }
+.hb-chip.off { color: var(--muted); border-color: var(--line-bright); }
+.hb-chip.nova { color: var(--think); border-color: var(--think); }
+.hb-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin: 0 0 22px; font-size: 12.5px; }
+.hb-facts dt { color: var(--muted); }
+.hb-facts dd { margin: 0; overflow-wrap: anywhere; }
+.hb-sub { margin: 22px 0 8px; font-size: 11.5px; font-weight: 700; color: var(--accent); letter-spacing: 0.16em; text-transform: uppercase; }
+.hb-prompt { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; border: 1px solid var(--line); border-left: 2px solid var(--accent); border-radius: var(--r-sm); background: var(--shade); line-height: 1.65; }
+.hb-runs { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.hb-run { display: grid; grid-template-columns: 11em minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 7px 8px; border-radius: var(--r-sm); font-size: 12.5px; }
+.hb-run:hover { background: var(--accent-soft); }
+.hb-run time { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.hb-run p { margin: 0; overflow-wrap: anywhere; }
+.hb-run.held p:first-child { color: var(--warn); }
+.hb-question { color: var(--think); margin-top: 3px !important; }
+
+/* ---- The form ---------------------------------------------------------- */
+.hb-form { display: grid; gap: 14px; max-width: 72ch; }
+.hb-form label { display: grid; gap: 5px; font-size: 12.5px; }
+.hb-form fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+.hb-form legend { font-size: 12.5px; margin-bottom: 4px; }
+.hb-form input[type=text], .hb-form input[type=number], .hb-form input[type=time], .hb-form select, .hb-form textarea {
+  width: 100%; min-width: 0; border: 1px solid var(--line-bright); border-radius: var(--r-sm); background: var(--shade); padding: 7px 10px; font-size: 13px;
+}
+.hb-form textarea { resize: vertical; line-height: 1.55; }
+.hb-form input:focus, .hb-form select:focus, .hb-form textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 10px -3px var(--glow); }
+.hb-form input:disabled, .hb-form select:disabled { opacity: 0.45; }
+.hb-form select option { background: var(--raised); }
+.hb-hint { margin: -8px 0 0; }
+.hb-when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hb-when input[type=number] { width: 6em; }
+.hb-when input[type=time] { width: 8em; }
+.hb-when select { width: auto; }
+.hb-form .hb-radio { display: inline-flex; grid-auto-flow: column; align-items: center; gap: 8px; min-width: 8.5em; }
+.hb-radio input { accent-color: var(--accent); margin: 0; }
+.hb-days { display: flex; flex-wrap: wrap; gap: 6px 14px; padding-left: 4px; }
+.hb-form .hb-day { display: inline-flex; align-items: center; gap: 6px; }
+.hb-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+
+/* ---- A run's transcript ------------------------------------------------- */
+.hb-run-view { max-width: 100ch; margin-inline: auto; }
+.hb-run-view .transcript-inner > * { max-width: none; }
+
+@media (max-width: 760px) {
+  .hb-run { grid-template-columns: minmax(0, 1fr) auto; }
+  .hb-run time { grid-column: 1 / -1; }
+  .hb-pair { grid-template-columns: minmax(0, 1fr); }
+  .hb-facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .hb-facts dd { margin-bottom: 8px; }
+}

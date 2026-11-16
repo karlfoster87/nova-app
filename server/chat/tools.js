@@ -1,5 +1,6 @@
 // Nova's own tools for Claude: the profile's tasks and sticky notes, so a chat can read and
-// change them ("plan my week from the sprint note"). They run inside Nova as an in-process MCP
+// change them ("plan my week from the sprint note"), and since v0.12 its Heartbeat schedules and
+// the shared Train of Thought. They run inside Nova as an in-process MCP
 // server (no extra process, nothing to set up); Claude sees them as mcp__nova__<name>.
 // One server per chat, built for the chat's profile. Every handler calls the same functions as
 // the REST routes, which check view access and that each row is this profile's, so a chat can
@@ -10,11 +11,17 @@ import { z } from 'zod';
 import { q } from '../core/db.js';
 import { hub } from '../core/hub.js';
 import { UserError } from '../core/errors.js';
+import { config } from '../core/config.js';
 import { can } from '../accounts/access.js';
 import { listTasks, createTask, updateTask, moveTask, deleteTask } from '../views/tasks.js';
 import { listNotes, createNote, updateNote, moveNote, deleteNote, isSharedNote } from '../views/notes.js';
+import { thoughtsForNova, recordThought, resolveThought } from '../thought/thoughts.js';
+import { listSchedules, createSchedule, updateSchedule, deleteSchedule, cadenceText, DAYS } from '../heartbeat/schedules.js';
 
-export const READ_TOOLS = ['mcp__nova__list_tasks', 'mcp__nova__list_notes', 'mcp__nova__apps_guide'];
+// Allowed without a prompt. Recording a thought and marking a question answered only write to the
+// Train of Thought, which the user reviews there, so they don't ask either.
+export const READ_TOOLS = ['mcp__nova__list_tasks', 'mcp__nova__list_notes', 'mcp__nova__apps_guide', 'mcp__nova__thought',
+  'mcp__nova__record_thought', 'mcp__nova__resolve_question', 'mcp__nova__list_heartbeats'];
 const COLORS = ['yellow', 'green', 'blue', 'pink', 'purple', 'grey'];
 
 // The server's own date, for when Claude doesn't say. Nova runs at home, so it's usually the
@@ -89,7 +96,12 @@ function taskTools(profile) {
     tool('update_task', 'Change a task\'s title, note or state. A subtask\'s state carries up: a parent becomes complete when all its subtasks are.',
       { id, title: z.string().optional(), note: z.string().optional().describe('Replaces the whole note. Empty clears it.'),
         state: z.enum(['waiting', 'in_progress', 'complete']).optional() },
-      write(({ id: taskId, ...body }) => updateTask(profile, taskId, Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)))),
+      write(({ id: taskId, ...body }) => {
+        const task = updateTask(profile, taskId, Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)));
+        // Finishing a task is one of the moments the Train of Thought records.
+        return body.state === 'complete' && can(profile, 'brain', 'read')
+          ? { ...task, novaNote: 'If the user has confirmed this is done, record it with record_thought (kind task), in one generic line.' } : task;
+      }),
       { searchHint: 'complete finish rename edit task state' }),
     tool('move_task', 'Move a task (with its subtasks) to another day, to Unscheduled, under another task, or before a sibling. ' +
       'Give parent_id to nest it; otherwise it goes to the top level of day (leave day out for Unscheduled).',
@@ -157,6 +169,101 @@ function noteTools(profile) {
   return tools;
 }
 
+// ---- Train of Thought -------------------------------------------------------
+// ctx: { chatId, run } where run is the unattended Heartbeat run this chat is (runner.js), or null.
+
+function thoughtTools(profile, { chatId, run }) {
+  const g = (run2) => guarded(profile, run2);
+  return [
+    tool('thought', 'Read the Train of Thought: the timeline, shared by everyone in this Nova, of what Nova has done (finished tasks, ' +
+      'commits, scheduled Heartbeat runs) and the questions it wants to put to the user. Newest first. Entries with a question and ' +
+      'status open are still waiting for the user.',
+    { since: z.string().optional().describe('Only entries from this date or time on, e.g. 2026-11-16 or an ISO time.'),
+      schedule_id: z.string().optional().describe('Only entries from this Heartbeat schedule\'s runs (its id, from list_heartbeats).'),
+      open_only: z.boolean().optional().describe('Only questions and held-back actions still waiting for the user.'),
+      limit: z.number().int().min(1).max(50).optional().describe('How many, up to 50. Defaults to 20.') },
+    g(({ since, schedule_id: scheduleId, open_only: openOnly, limit }) => {
+      const list = thoughtsForNova(profile, { since, scheduleId, openOnly, limit });
+      return list.length ? list : 'There is nothing in the Train of Thought for that yet.';
+    }),
+    { annotations: { readOnlyHint: true }, searchHint: 'train of thought timeline what did you do earlier questions heartbeat history' }),
+    tool('record_thought', 'Add an entry to the Train of Thought: one short line saying what was done and why. Use it when a task the ' +
+      'user confirms is done, after a commit, and at the end of every Heartbeat run. Add a question when there is something the user ' +
+      'should decide or might want (for example a pattern worth automating); it waits for them in the Thought pane. Everyone in this ' +
+      'Nova can read the timeline, so keep it generic: the kind of work, the area or project, and a one-line why. Never include chat ' +
+      'content, quotes, personal details, names of people, file contents, credentials or figures.',
+    { summary: z.string().describe('One line, up to 240 characters.'),
+      question: z.string().optional().describe('A short question for the user to pick up later, if there is one.'),
+      kind: z.enum(['task', 'commit', 'other']).optional().describe('task: a finished task; commit: a commit; other (the default) for anything else.') },
+    g(({ summary, question, kind }) => {
+      if (run && run.recorded >= 5) throw new UserError('This run has already recorded five thoughts. Put the rest in one of them.');
+      const source = run ? 'heartbeat' : kind === 'task' ? 'task' : kind === 'commit' ? 'commit' : 'chat';
+      const entry = recordThought(profile, { source, sourceId: run?.scheduleId || null, chatId, summary, question });
+      if (run) { run.recorded++; if (entry.question) run.questions.push(entry.question); }
+      return { recorded: entry.id, open: entry.status === 'open' };
+    }),
+    { searchHint: 'record thought log what was done note question for later' }),
+    tool('resolve_question', 'Mark a question in the Train of Thought as answered (the user has answered or acted on it) or dismissed ' +
+      '(they don\'t want it), so it stops waiting for them.',
+    { id: z.string().describe('The entry\'s id, from the thought tool.'), status: z.enum(['answered', 'dismissed']) },
+    g(({ id: thoughtId, status }) => { resolveThought(profile, thoughtId, status); return `Marked ${status}.`; }),
+    { searchHint: 'answer dismiss resolve question thought' })
+  ];
+}
+
+// ---- Heartbeat --------------------------------------------------------------
+// Nova can set up work it does on its own on a timetable. The user sees every schedule in the
+// Heartbeat pane and can pause or delete it there without asking Nova. An unattended run only
+// gets the list: a run can't reschedule itself.
+
+const scheduleShape = (s) => ({ id: s.id, name: s.name, prompt: s.prompt, when: s.cadence, paused: !s.enabled,
+  runsIn: s.targetChat ? `the chat "${s.targetChat.title}"` : 'behind the scenes', nextRun: s.nextRun ? new Date(s.nextRun).toISOString() : null,
+  lastRun: s.lastRun ? new Date(s.lastRun).toISOString() : null, lastStatus: s.lastStatus, createdBy: s.createdBy });
+// Built when a chat starts, not at import: tools.js and heartbeat/schedules.js import each other.
+const cadenceArgs = () => ({
+  every_minutes: z.number().int().optional().describe(`Repeat every this many minutes (at least ${Math.max(1, Number(config.heartbeat.minMinutes) || 5)}; 60 = hourly). Use this or at, not both.`),
+  at: z.string().optional().describe('A time of day, HH:MM in the server\'s time zone, to run at instead.'),
+  days: z.array(z.enum(DAYS)).optional().describe('With at: the weekdays to run on. Leave out for every day.')
+});
+const cadenceOf = ({ every_minutes: e, at, days }) => ({
+  ...(e !== undefined ? { everyMinutes: e } : {}), ...(at !== undefined ? { at } : {}), ...(days !== undefined ? { days } : {})
+});
+
+function heartbeatTools(profile, { chatId, run }) {
+  const g = (fn) => guarded(profile, fn);
+  const tools = [
+    tool('list_heartbeats', 'List this profile\'s Heartbeat schedules: work Nova does by itself on a timetable, with when each runs next and how its last run went.', {},
+      g(() => { const list = listSchedules(profile).map(scheduleShape); return list.length ? list : 'There are no Heartbeat schedules.'; }),
+      { annotations: { readOnlyHint: true }, searchHint: 'heartbeat schedule scheduled routines recurring cron timetable' })
+  ];
+  if (run || !can(profile, 'brain', 'edit')) return tools;
+  tools.push(
+    tool('add_heartbeat', 'Schedule work Nova does by itself, without being asked: a prompt run every so many minutes, or at a time of day. ' +
+      'Each run is unattended and non-destructive (it can read, look things up and create, but anything that deletes, overwrites, edits ' +
+      'existing files or changes things is held back for review), and records what it found in the Train of Thought, with a question ' +
+      'for the user when something deserves one. By default it runs behind the scenes; in_this_chat sends the prompt to this chat ' +
+      'instead. Write the prompt so it stands on its own, since each run starts fresh. The user can pause or delete it in the Heartbeat pane.',
+    { name: z.string().describe('A short name, up to 80 characters.'), prompt: z.string().describe('What to do on each run, up to 4,000 characters.'),
+      ...cadenceArgs(), in_this_chat: z.boolean().optional().describe('Send each run\'s prompt to this chat rather than running behind the scenes.') },
+    g(({ name, prompt, in_this_chat: here, ...rest }) =>
+      scheduleShape(createSchedule(profile, { name, prompt, ...cadenceOf(rest), targetChatId: here ? chatId : null }, { by: 'nova', chatId }))),
+    { searchHint: 'schedule recurring hourly daily check in heartbeat automate later' }),
+    tool('update_heartbeat', 'Change a Heartbeat schedule: its name, prompt, timing, or pause or resume it. Give at or every_minutes to change the timing.',
+      { id: z.string().describe('The schedule\'s id, from list_heartbeats.'), name: z.string().optional(), prompt: z.string().optional(),
+        ...cadenceArgs(), paused: z.boolean().optional() },
+      g(({ id: sid, name, prompt, paused, ...rest }) => scheduleShape(updateSchedule(profile, sid, {
+        ...(name !== undefined ? { name } : {}), ...(prompt !== undefined ? { prompt } : {}), ...cadenceOf(rest),
+        ...(paused !== undefined ? { enabled: !paused } : {})
+      }))),
+      { searchHint: 'pause resume change reschedule heartbeat schedule' }),
+    tool('delete_heartbeat', 'Delete a Heartbeat schedule. What its past runs recorded stays in the Train of Thought.',
+      { id: z.string().describe('The schedule\'s id, from list_heartbeats.') },
+      g(({ id: sid }) => { deleteSchedule(profile, sid); return 'Deleted.'; }),
+      { annotations: { destructiveHint: true }, searchHint: 'remove delete stop heartbeat schedule' })
+  );
+  return tools;
+}
+
 // ---- Permission prompts ----------------------------------------------------
 // A prompt for a write tool names the task or note it touches, so the user isn't asked to
 // approve a bare id. Lookups are by (id, profile); anything not found is described plainly.
@@ -174,6 +281,8 @@ function subtaskCount(profile, id) {
 }
 const taskName = (t) => (t ? `the task "${clip(t.title)}"` : 'a task');
 const noteName = (n) => (n ? `the ${n.shared ? 'shared ' : ''}sticky note "${clip(n.text.split('\n').find((l) => l.trim()) || 'empty')}"` : 'a sticky note');
+function ownSchedule(profile, id) { const r = id ? q.heartbeat.get(String(id)) : null; return r && r.profile === profile ? r : null; }
+const scheduleName = (s) => (s ? `the schedule "${clip(s.name)}"` : 'a schedule');
 const where = (profile, day, parentId) => {
   if (parentId) return ` under ${taskName(ownTask(profile, parentId))}`;
   return day ? ` on ${day}` : ' to Unscheduled';
@@ -197,6 +306,16 @@ export function describeCall(profile, toolName, input = {}) {
     case 'mcp__nova__update_note': return `Change ${noteName(n())}`;
     case 'mcp__nova__move_note': return `Move ${noteName(n())}`;
     case 'mcp__nova__delete_note': return `Delete ${noteName(n())}`;
+    case 'mcp__nova__add_heartbeat': {
+      const when = input.every_minutes != null ? cadenceText({ every_min: Number(input.every_minutes) })
+        : input.at ? cadenceText({ at_time: String(input.at), days: Array.isArray(input.days) ? input.days.map((d) => DAYS.indexOf(d)).filter((d) => d >= 0).join(',') : null }) : '';
+      return `Schedule "${clip(input.name)}"${when ? `, ${when.charAt(0).toLowerCase()}${when.slice(1)}` : ''}, ${input.in_this_chat ? 'in this chat' : 'behind the scenes'}`;
+    }
+    case 'mcp__nova__update_heartbeat': {
+      const s = ownSchedule(profile, input.id);
+      return input.paused === true ? `Pause ${scheduleName(s)}` : input.paused === false ? `Resume ${scheduleName(s)}` : `Change ${scheduleName(s)}`;
+    }
+    case 'mcp__nova__delete_heartbeat': return `Delete ${scheduleName(ownSchedule(profile, input.id))}`;
     default: return null;
   }
 }
@@ -237,21 +356,27 @@ const appTools = () => [
 
 // The tools a profile gets: none for a view it can't see, only the list tool for one it can
 // only view. Access is checked again on every call, so a change while the chat runs still holds.
-export const novaTools = (profile) => [
+// The Train of Thought and Heartbeat follow the Core tab ('brain'). ctx: { chatId, run } (see above).
+export const novaTools = (profile, ctx = {}) => [
   ...(can(profile, 'tasks', 'read') ? taskTools(profile) : []),
-  ...(can(profile, 'notes', 'read') ? noteTools(profile) : [])
+  ...(can(profile, 'notes', 'read') ? noteTools(profile) : []),
+  ...(can(profile, 'brain', 'read') ? [...thoughtTools(profile, { chatId: null, run: null, ...ctx }), ...heartbeatTools(profile, { chatId: null, run: null, ...ctx })] : [])
 ];
 
 // The nova MCP server for one chat, or null when it would have no tools. apps: the profile can
-// build apps (runner.js), so it gets the apps guide.
-export function novaServer(profile, apps = false) {
-  const tools = [...novaTools(profile), ...(apps ? appTools() : [])];
+// build apps (runner.js), so it gets the apps guide. chatId: the chat it serves, so a thought or
+// schedule can point back to it. run: the unattended Heartbeat run it serves, if it is one.
+export function novaServer(profile, { apps = false, chatId = null, run = null } = {}) {
+  const tools = [...novaTools(profile, { chatId, run }), ...(apps ? appTools() : [])];
   if (!tools.length) return null;
+  const core = can(profile, 'brain', 'read');
   return createSdkMcpServer({
     name: 'nova', version: '1.0.0', tools,
     instructions: 'These tools read and change the user\'s own tasks and sticky notes in Nova, the app this chat runs in. ' +
       'Use them when the user talks about their tasks, to-do list, plans for a day or week, or sticky notes. ' +
       'List first to get ids. Tasks and notes are not files in the brain folder.' +
+      (core ? ' thought and record_thought read and add to the Train of Thought, Nova\'s shared timeline of what it has done and ' +
+        'questions for the user; the heartbeat tools schedule work Nova does by itself.' : '') +
       (apps ? ' apps_guide explains how to build the user\'s web apps in Nova.' : '')
   });
 }

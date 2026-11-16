@@ -14,7 +14,7 @@ import { setDraft } from '../chat/composer.js';
 // A new view adds its module here (and its entry in server/accounts/access.js VIEWS).
 const VIEW_MODULES = {
   brain: '../views/brain.js', tasks: '../views/tasks.js', notes: '../views/notes.js', apps: '../views/apps.js',
-  soul: '../views/soul.js', heartbeat: '../views/soon.js', thought: '../views/soon.js'
+  soul: '../views/soul.js', heartbeat: '../views/heartbeat.js', thought: '../views/thought.js'
 };
 // Views that share a tab: the Core tab holds the brain and the Soul, Heartbeat and Thought,
 // switched at the top of the sidebar. They follow the tab's access level and aren't listed by
@@ -94,10 +94,12 @@ tabs.addEventListener('keydown', (e) => {
 });
 
 // ---- Badges ---------------------------------------------------------------------
-// Today's unfinished tasks and active notes. The server counts, so they're right before a
-// view has ever been opened; today is this device's date.
+// Today's unfinished tasks, active notes, and on the Core tab what waits in the Train of Thought
+// (Nova's open questions, and actions this profile's runs held back). The server counts, so
+// they're right before a view has ever been opened; today is this device's date.
 let badges = {};
-const BADGE_TEXT = { tasks: (n) => `${n} ${n === 1 ? 'task' : 'tasks'} left today`, notes: (n) => `${n} active ${n === 1 ? 'note' : 'notes'}` };
+const BADGE_TEXT = { tasks: (n) => `${n} ${n === 1 ? 'task' : 'tasks'} left today`, notes: (n) => `${n} active ${n === 1 ? 'note' : 'notes'}`,
+  brain: (n) => `${n} ${n === 1 ? 'thing' : 'things'} waiting for you in Thought` };
 
 export async function refreshBadges() {
   try {
