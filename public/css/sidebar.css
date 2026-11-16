@@ -10,7 +10,8 @@
 .who-profile span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who-profile:hover { color: var(--accent); }
 .who-profile svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
-.who #settingsBtn { margin-left: auto; }
+.who #homeBtn { margin-left: auto; }
+.who #homeBtn svg { stroke: var(--accent); }
 .who #settingsBtn svg { stroke: var(--accent); }
 
 /* View tabs: icon over label, lit when selected */

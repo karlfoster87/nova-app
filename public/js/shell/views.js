@@ -14,8 +14,11 @@ import { setDraft } from '../chat/composer.js';
 // A new view adds its module here (and its entry in server/accounts/access.js VIEWS).
 const VIEW_MODULES = {
   brain: '../views/brain.js', tasks: '../views/tasks.js', notes: '../views/notes.js', apps: '../views/apps.js',
-  soul: '../views/soul.js', heartbeat: '../views/heartbeat.js', thought: '../views/thought.js'
+  soul: '../views/soul.js', heartbeat: '../views/heartbeat.js', thought: '../views/thought.js', home: '../views/home.js'
 };
+// Home (views/home.js) isn't a tab and has no access level: every profile has it, and each of
+// its cards follows the view it draws on. The home button and the Nova logo open it.
+const HOME = 'home';
 // Views that share a tab: the Core tab holds the brain and the Soul, Heartbeat and Thought,
 // switched at the top of the sidebar. They follow the tab's access level and aren't listed by
 // the server as views of their own. The tab reopens whichever member was used last.
@@ -43,7 +46,10 @@ function allowedViews() {
   const access = state.me?.access || {};
   return [{ id: 'chats', label: 'Chats' }, ...(state.me?.views || []).filter((v) => VIEW_MODULES[v.id] && access[v.id] && access[v.id] !== 'none')];
 }
-const canOpen = (id) => allowedViews().some((v) => v.id === tabOf(id));
+const canOpen = (id) => id === HOME || allowedViews().some((v) => v.id === tabOf(id));
+
+// What a tab does when clicked: a grouped tab reopens the member used last.
+const openTab = (id) => showView(GROUPS[id] && tabOf(view) !== id ? store.get(`view.${id}`, id) : id);
 
 let tabList = [];
 const moreTab = h('button', { type: 'button', class: 'more-tab', 'aria-haspopup': 'menu', 'data-label': 'More', title: 'More views', onclick: () => openMore() },
@@ -54,15 +60,20 @@ export function renderViewTabs() {
   tabs.hidden = tabList.length < 2;
   tabs.replaceChildren(...tabList.map((v) => h('button', {
     type: 'button', role: 'tab', 'aria-selected': String(v.id === view), tabindex: v.id === view ? 0 : -1,
-    'data-tab': v.id, 'data-label': v.label, onclick: () => showView(GROUPS[v.id] && tabOf(view) !== v.id ? store.get(`view.${v.id}`, v.id) : v.id)
+    'data-tab': v.id, 'data-label': v.label, onclick: () => openTab(v.id)
   }, svgIcon(VIEW_ICONS[v.id] || VIEW_ICONS.notes), h('span', {}, v.label), h('span', { class: 'tab-badge', hidden: true }))), moreTab);
-  if (!tabList.some((v) => v.id === tabOf(view))) showView('chats', { force: true }); // access was taken away
+  if (view !== HOME && !tabList.some((v) => v.id === tabOf(view))) showView('chats', { force: true }); // access was taken away (Home has no tab)
   fitTabs();
   paintBadges();
 }
 
 // Shows as many tabs as fit at TAB_MIN, and the rest under More.
 function fitTabs() {
+  if (view === HOME && matchMedia('(min-width: 761px)').matches) {
+    for (const b of tabs.querySelectorAll('[data-tab]')) b.hidden = false;
+    moreTab.hidden = true;
+    return;
+  }
   const width = tabs.clientWidth;
   if (!width) return; // hidden (a closed drawer); the observer fits them once there's room
   const gap = parseFloat(getComputedStyle(tabs).columnGap) || 0;
@@ -118,7 +129,7 @@ function paintBadges() {
     if (!badge) continue;
     badge.hidden = !n;
     badge.textContent = n > 99 ? '99+' : String(n || '');
-    if (n) b.title = BADGE_TEXT[b.dataset.tab](n); else b.removeAttribute('title');
+    b.title = n ? `${b.dataset.label}: ${BADGE_TEXT[b.dataset.tab](n)}` : b.dataset.label; // named even when Home shows icons only
     b.setAttribute('aria-label', n ? `${b.dataset.label}, ${BADGE_TEXT[b.dataset.tab](n)}` : b.dataset.label);
   }
 }
@@ -158,6 +169,8 @@ async function showView(id, { arg, force = false } = {}) {
   }
   const leaving = view;
   view = id;
+  document.body.classList.toggle('at-home', id === HOME); // the sidebar widens to hold Home (home.css)
+  if (id === HOME) els.sidebar.classList.remove('open');
   for (const el of document.querySelectorAll('[data-side], [data-view]')) {
     el.hidden = (el.dataset.side || el.dataset.view) !== id;
   }
@@ -169,8 +182,8 @@ async function showView(id, { arg, force = false } = {}) {
   paintBadges();
   if (leaving !== id) views.get(leaving)?.hide?.();
   views.get(id)?.show?.(arg);
-  if (id === 'chats') history.replaceState(null, '', location.pathname);
-  store.set('view', id);
+  if (id === 'chats') { history.replaceState(null, '', location.pathname); idleSince = Date.now(); }
+  if (id !== HOME) store.set('view', id);
   if (GROUPS[tabOf(id)]) store.set(`view.${tabOf(id)}`, id);
 }
 
@@ -223,6 +236,14 @@ export async function startChat(text) {
   return true;
 }
 
+// Home's "Ask Nova" box: a new chat with the message sent at once, through the composer as if
+// typed there. False if the current view won't let go.
+export async function askNova(text) {
+  if (!(await startChat(text))) return false;
+  els.composer.requestSubmit();
+  return true;
+}
+
 // Opens a chat from anywhere, e.g. a notification: Chats first, unless the view won't let go.
 export async function goToChat(id) {
   await showView('chats');
@@ -243,8 +264,24 @@ document.addEventListener('click', (e) => {
   goTo(route);
 }, true);
 
-// The Nova mark in the header goes back to Chats from any view, keeping the open chat.
-$('brandBtn').addEventListener('click', () => showView('chats'));
+// The Nova mark in the header and the home button beside the profile name open Home.
+$('brandBtn').addEventListener('click', () => showView(HOME));
+$('homeBtn').addEventListener('click', () => showView(HOME));
+
+// An untouched new chat (nothing sent, nothing typed, no files) left for five minutes without
+// input on this device goes back to Home. A chat with history or a draft is never taken away.
+// A tab that was hidden checks when it comes back.
+const IDLE_HOME_MS = 5 * 60 * 1000;
+let idleSince = Date.now();
+for (const type of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+  document.addEventListener(type, () => { idleSince = Date.now(); }, { capture: true, passive: true });
+}
+function idleHome() {
+  if (view !== 'chats' || state.current || state.pending || els.input.value.trim() || state.attachments.length) return;
+  if (Date.now() - idleSince >= IDLE_HOME_MS) showView(HOME);
+}
+setInterval(idleHome, 15 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) idleHome(); });
 
 // New chat, from the sidebar's button in any view.
 $('newChatBtn').addEventListener('click', async () => { await showView('chats'); if (view === 'chats') newChat(null); });

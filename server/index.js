@@ -33,11 +33,12 @@ import appRoutes from './routes/apps.js';
 import soulRoutes from './routes/soul.js';
 import pushRoutes from './routes/push.js';
 import heartbeatRoutes from './routes/heartbeat.js';
+import homeRoutes from './routes/home.js';
 import { startHeartbeats } from './heartbeat/runs.js';
 
 const open = createRouter(); // routes that need no session: health, sign-in, brain pages and running apps (own tokens)
 const api = createRouter();  // everything else, for a signed-in profile
-for (const register of [authRoutes, profileRoutes, chatRoutes, permissionRoutes, brainRoutes, viewRoutes, settingsRoutes, updateRoutes, voiceRoutes, searchRoutes, appRoutes, soulRoutes, pushRoutes, heartbeatRoutes]) {
+for (const register of [authRoutes, profileRoutes, chatRoutes, permissionRoutes, brainRoutes, viewRoutes, settingsRoutes, updateRoutes, voiceRoutes, searchRoutes, appRoutes, soulRoutes, pushRoutes, heartbeatRoutes, homeRoutes]) {
   register(api, open);
 }
 

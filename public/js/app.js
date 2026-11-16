@@ -28,6 +28,6 @@ $('profileBtn').addEventListener('click', () => openSwitcher());
   openLog(state.me.profile);
   state.meta = state.me.meta;
   await startChats();
-  await goTo(routeFromHash());
+  await goTo(routeFromHash() || { id: 'home' }); // Home is the start page, unless a link points elsewhere
   pwa.listenForLaunches(); // after routing is ready; relaunches and shortcuts route into this window
 })();

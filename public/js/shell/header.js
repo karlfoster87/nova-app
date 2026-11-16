@@ -16,7 +16,7 @@ tickClock();
 setInterval(tickClock, 1000);
 
 // ---- Usage meters -------------------------------------------------------------
-const WINDOWS = [['five_hour', 'Session'], ['seven_day', 'Week'], ['seven_day_opus', 'Opus week'], ['seven_day_sonnet', 'Sonnet week']];
+export const WINDOWS = [['five_hour', 'Session'], ['seven_day', 'Week'], ['seven_day_opus', 'Opus week'], ['seven_day_sonnet', 'Sonnet week']];
 // window -> 0, 75 or 90, so crossing a threshold is logged once. Kept for the tab like the
 // log itself, so a reload doesn't log the same warning again.
 const usageLevel = (() => { try { return new Map(Object.entries(JSON.parse(sessionStorage.getItem('nova.usageLevels')) || {})); } catch { return new Map(); } })();
@@ -77,7 +77,7 @@ function tickUsage() {
 }
 setInterval(tickUsage, 30 * 1000);
 
-function resetText(iso) {
+export function resetText(iso) {
   if (!iso) return 'Reset time not reported';
   const at = new Date(iso);
   const left = at - Date.now();

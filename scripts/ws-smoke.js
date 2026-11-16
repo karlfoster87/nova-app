@@ -392,6 +392,7 @@ async function brain(a, b, c) {
   check((await http('GET', '/api/brain/image?path=notes%2Fa.md', { cookie: a })).status === 415, 'only raster images are served inline');
   await soul(a, b, c);
   await heartbeatRoutes(a, b, c);
+  await homeRoutes(a, b, c);
   await brainVideo(a, c);
   await brainPages(a, b, c);
   await brainFiles(b, c);
@@ -1628,4 +1629,27 @@ async function heartbeatRoutes(a, b, c) {
     'the Core tab counts what waits in Thought, only for profiles that can view it');
   check((await http('DELETE', `/api/heartbeats/${id}`, { cookie: a })).status === 200 && !(await http('GET', '/api/heartbeats', { cookie: a })).data?.length,
     'a schedule is deleted');
+}
+
+// ---- Home ---------------------------------------------------------------------------------
+// The dashboard's one summary route: every card follows the access of the view it draws on, and
+// the reserved cards are off.
+async function homeRoutes(a, b, c) {
+  const day = '2026-10-03';
+  const home = async (cookie) => (await http('GET', `/api/home?today=${day}`, { cookie })).data;
+  const badgesOf = async (cookie) => (await http('GET', `/api/badges?today=${day}`, { cookie })).data || {};
+  check((await http('GET', '/api/home')).status === 401, 'Home needs a session');
+  const ha = await home(a);
+  check(ha && Array.isArray(ha.waiting) && Array.isArray(ha.running) && ha.cards?.email === false && ha.cards?.calendar === false,
+    'Home lists what waits and what runs, with the Email and Calendar cards reserved but off');
+  check(ha?.today && typeof ha.today.left === 'number' && Array.isArray(ha.notes) && ha.thought && ha.schedules && !('briefing' in ha),
+    'an admin\'s Home has every card');
+  let ok = true;
+  for (const cookie of [a, b, c]) {
+    const hs = await home(cookie), bs = await badgesOf(cookie);
+    if (('today' in hs) !== ('tasks' in bs) || ('notes' in hs) !== ('notes' in bs) || ('thought' in hs) !== ('brain' in bs)) ok = false;
+  }
+  check(ok, 'each Home card shows only for profiles that can use its view');
+  check(!('today' in ((await http('GET', '/api/home', { cookie: a })).data || {})), 'without the browser\'s date, Home leaves the day\'s tasks out');
+
 }

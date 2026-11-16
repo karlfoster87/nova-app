@@ -33,6 +33,7 @@ function mergePrefs(row, patch) {
   for (const [k, v] of Object.entries(patch)) {
     if (!(k in PREFS)) throw new UserError(`There's no "${k}" preference.`);
     if (typeof v !== typeof PREFS[k]) throw new UserError(`"${k}" must be ${typeof PREFS[k] === 'boolean' ? 'true or false' : `a ${typeof PREFS[k]}`}.`);
+    if (typeof v === 'string' && v.length > 64) throw new UserError(`"${k}" is too long.`);
     next[k] = v;
   }
   return JSON.stringify(next);
