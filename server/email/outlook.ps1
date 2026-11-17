@@ -2,11 +2,15 @@
 # It reads one JSON request from stdin and writes one JSON answer to stdout, in UTF-8.
 #
 # It attaches to the Outlook that is already running and never starts one: when Outlook isn't open
-# it says so. Listing and reading change nothing. The only write is 'draft', which saves a reply in
-# Drafts and opens it in Outlook for the user to check; nothing here ever sends mail.
+# it says so. Listing and reading change nothing. 'draft' saves a reply in Drafts and opens it in
+# Outlook for the user to check; nothing here ever sends mail.
 #
 # Requests: { action: 'list', limit }, { action: 'read', entryId, storeId },
-#           { action: 'draft', entryId, storeId, body, replyAll }
+#           { action: 'draft', entryId, storeId, body, replyAll },
+#           { action: 'folders' | 'delete', entryId, storeId }, { action: 'move', entryId, storeId, folderId, folderStoreId },
+#           { action: 'flag', entryId, storeId, on }
+# Since v0.15.1 the Home card can also delete, move and flag an item, each only when the user
+# chooses it there (delete after a confirmation). Delete goes to Deleted Items, as in Outlook.
 $ErrorActionPreference = 'Stop'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 [Console]::OutputEncoding = $utf8
@@ -27,8 +31,8 @@ function KindOf($i) { $c = [int]$i.Class; if ($c -eq 43) { 'mail' } elseif ($c -
 
 function Shape($i, $kind) {
   $store = $null; try { $store = $i.Parent.StoreID } catch {}
-  $folder = $null; try { $folder = $i.Parent.Name } catch {}
-  $o = [ordered]@{ entryId = $i.EntryID; storeId = $store; kind = $kind; subject = (Clip $i.Subject 300); folder = $folder }
+  $folder = $null; $folderId = $null; try { $p = $i.Parent; $folder = $p.Name; $folderId = $p.EntryID } catch {}
+  $o = [ordered]@{ entryId = $i.EntryID; storeId = $store; kind = $kind; subject = (Clip $i.Subject 300); folder = $folder; folderId = $folderId }
   if ($kind -eq 'task') {
     $o.due = Ms $i.DueDate; $o.from = ''; $o.received = Ms $i.CreationTime; $o.unread = $false; $o.flagged = $true
     $o.preview = Preview $i.Body
@@ -76,9 +80,52 @@ try {
     Send ([ordered]@{ inbox = $inbox; todo = $todo; unread = $inboxFolder.UnReadItemCount; total = $items.Count })
   }
 
-  if ($req.action -eq 'read' -or $req.action -eq 'draft') {
+  # The mail folders of one mailbox, as a tree in order, for "Move to folder": the item's own
+  # mailbox, or the default one when no item is given (Nova fetches that ahead, to cache it).
+  # Walking folders over COM is slow (seconds for a large mailbox), so every property read counts:
+  # the mailbox's id is read once, not per folder.
+  if ($req.action -eq 'folders') {
+    if ($req.entryId) {
+      try { $store = $ns.GetItemFromID([string]$req.entryId, [string]$req.storeId).Parent.Store } catch { Send @{ error = 'gone' } }
+    } else { $store = $ns.DefaultStore }
+    $storeId = $store.StoreID
+    $out = New-Object System.Collections.ArrayList
+    # Never offered: the Outbox (mail there is sent) and Outlook's Sync Issues housekeeping.
+    $skip = @(); foreach ($n in 4, 20) { try { $skip += $ns.GetDefaultFolder($n).EntryID } catch {} }
+    function Walk($f, $path, $depth) {
+      foreach ($c in $f.Folders) {
+        if ($out.Count -ge 500) { return }
+        if ([int]$c.DefaultItemType -ne 0) { continue } # mail folders only
+        $id = $c.EntryID; $name = $c.Name
+        if ($skip -contains $id -or $name -eq 'Outbox') { continue }
+        $p = if ($path) { "$path/$name" } else { $name }
+        [void]$out.Add([ordered]@{ entryId = $id; name = $name; path = $p; depth = $depth })
+        if ($depth -lt 8) { Walk $c $p ($depth + 1) }
+      }
+    }
+    Walk $store.GetRootFolder() '' 0
+    Send ([ordered]@{ storeId = $storeId; folders = @($out) })
+  }
+
+  if (@('read', 'draft', 'move', 'delete', 'flag') -contains $req.action) {
     try { $item = $ns.GetItemFromID([string]$req.entryId, [string]$req.storeId) } catch { Send @{ error = 'gone' } }
     $kind = KindOf $item
+
+    if ($req.action -eq 'move') {
+      try { $dest = $ns.GetFolderFromID([string]$req.folderId, [string]$req.folderStoreId) } catch { Send @{ error = 'no-folder' } }
+      [void]$item.Move($dest)
+      Send ([ordered]@{ ok = $true; folder = $dest.Name })
+    }
+    # Delete moves it to Deleted Items, as pressing Delete in Outlook does.
+    if ($req.action -eq 'delete') { $item.Delete(); Send @{ ok = $true } }
+    # Follow up: flagged for today (olMarkToday = 0), or the flag cleared.
+    if ($req.action -eq 'flag') {
+      if ($kind -eq 'task') { Send @{ error = 'not-mail' } }
+      if ($req.on) { $item.MarkAsTask(0) } else { $item.ClearTaskFlag() }
+      $item.Save()
+      Send ([ordered]@{ ok = $true; flagged = [bool]$req.on })
+    }
+
     if ($req.action -eq 'read') {
       $o = Shape $item $kind
       $o.body = Clip $item.Body 60000

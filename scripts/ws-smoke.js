@@ -1762,6 +1762,17 @@ async function emailRoutes(a, b, c) {
   check((await http('POST', '/api/email/0123456789ab/handoff', { cookie: a, body: { mode: 'discuss' } })).status === 409
     && (await http('POST', '/api/email/0123456789ab/handoff', { cookie: b, body: { mode: 'reply' } })).status === 403
     && (await http('POST', '/api/email/not-a-ref/handoff', { cookie: a, body: { mode: 'reply' } })).status === 404, 'a hand-off needs email on, an admin and a listed ref');
+  // v0.15.1: the card's … menu (folders, delete, move, follow up).
+  const acts = [['GET', 'folders'], ['POST', 'delete'], ['POST', 'move'], ['POST', 'flag']];
+  let refused = true;
+  for (const [method, act] of acts) {
+    const url = `/api/email/0123456789ab/${act}`, body = method === 'POST' ? { on: true, folder: '0123456789ab' } : undefined;
+    if ((await http(method, url, { cookie: a, body })).status !== 409 || (await http(method, url, { cookie: b, body })).status !== 403
+      || (await http(method, url, { cookie: c, body })).status !== 403) refused = false;
+  }
+  check(refused, 'an email\'s folders, delete, move and follow up need email on and an admin');
+  check((await http('POST', '/api/email/0123456789ab/delete', { cookie: a, origin: evil, body: {} })).status === 403
+    && (await http('POST', '/api/email/0123456789ab/archive', { cookie: a, body: {} })).status === 404, 'a cross-origin delete and an unknown action are refused');
   const home = (await http('GET', '/api/home?today=2026-10-03', { cookie: a })).data;
   check(home?.cards?.email === false && !('email' in home), 'Home leaves the Email card out while email is off');
 }

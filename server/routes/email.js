@@ -4,9 +4,11 @@
 // email.js checks that again on each call.
 import { readJson } from '../http/respond.js';
 import { refreshAllRunners } from '../chat/runner.js';
-import { emailSettings, saveEmailSettings, emailList, emailHandoff } from '../email/email.js';
+import { emailSettings, saveEmailSettings, emailList, emailHandoff, emailFolders, emailAction } from '../email/email.js';
 
 const HANDOFF = /^\/api\/email\/([0-9a-f]{12})\/handoff$/;
+const FOLDERS = /^\/api\/email\/([0-9a-f]{12})\/folders$/;
+const ACTION = /^\/api\/email\/([0-9a-f]{12})\/(delete|move|flag)$/;
 
 export default function emailRoutes(api) {
   api.get('/api/settings/email', () => emailSettings());
@@ -18,4 +20,7 @@ export default function emailRoutes(api) {
   });
   api.post('/api/email/refresh', ({ profile }) => emailList(profile));
   api.post(HANDOFF, async ({ req, profile, params: [ref] }) => emailHandoff(profile, ref, (await readJson(req)).mode));
+  // v0.15.1, the Home card's … menu: the folders to move to, then delete, move and follow up.
+  api.get(FOLDERS, ({ profile, params: [ref] }) => emailFolders(profile, ref));
+  api.post(ACTION, async ({ req, profile, params: [ref, action] }) => emailAction(profile, ref, action, await readJson(req)));
 }

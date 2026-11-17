@@ -11,6 +11,8 @@
 // full calendar page (views/calendar.js).
 import { h, svgIcon } from '../lib/dom.js';
 import { api } from '../lib/api.js';
+import { openMenu } from '../lib/menu.js';
+import { confirmDialog, listDialog } from '../lib/dialog.js';
 import { localDay } from '../lib/format.js';
 import { state } from '../state.js';
 import { goTo, goToChat, startChat, askNova } from '../shell/views.js';
@@ -26,8 +28,7 @@ const ICONS = {
   email: ['M3 5h18v14H3Z', 'm3 6 9 7 9-7'],
   calendar: ['M4 5h16v15H4Z', 'M4 10h16M9 3v4M15 3v4'],
   send: ['M4 12 20 4l-6 16-3-7Z'],
-  discuss: ['M4 5h16v11H9l-5 4Z'],
-  reply: ['M9 7 4 12l5 5', 'M4 12h11a5 5 0 0 1 5 5v2']
+  more: ['M5 12h.01M12 12h.01M19 12h.01']
 };
 // Waiting changes the most and comes first; the reserved slots sit beside what they belong with.
 const TASK_STATE = { waiting: 'Waiting', in_progress: 'In progress', complete: 'Complete' };
@@ -175,7 +176,8 @@ export function init(ctx) {
 
     // The inbox's newest mail, then what's flagged or to do, for admins once Settings → Email turns
     // it on (the server leaves it out otherwise). Each item can start a chat about it, or one that
-    // drafts a reply straight away. Mail text comes from outside, so it's only put in as text.
+    // drafts a reply straight away, plus (v0.15.1, its … menu) follow up, move and delete. Mail text
+    // comes from outside, so it's only put in as text.
     email() {
       const e = data.cards?.email && data.email;
       if (!e) return null;
@@ -186,14 +188,12 @@ export function init(ctx) {
       const item = (x) => {
         const time = x.kind === 'task' || (x.flagged && x.due) ? (x.due ? `due ${dayName(localDay(new Date(x.due)), { day: 'numeric', month: 'short' })}` : '') : x.received ? when(x.received) : '';
         const who = x.kind === 'task' ? 'Task' : x.from || 'Unknown sender';
-        const btn = (mode, label, icon) => h('button', { type: 'button', class: 'icon-btn', title: label, 'aria-label': `${label}: ${x.subject || '(no subject)'}`, onclick: () => handoff(x, mode) }, svgIcon(icon));
         return row([
           h('div', { class: 'home-mail', title: x.preview || '' },
             h('div', { class: 'home-mail-head' }, h('strong', {}, who), time ? h('time', {}, time) : null),
             h('span', { class: 'home-mail-subject' }, x.subject || '(no subject)')),
-          h('div', { class: 'home-mail-btns' },
-            btn('discuss', 'Discuss with Nova', ICONS.discuss),
-            x.kind === 'task' ? null : btn('reply', 'Draft a reply', ICONS.reply))], `mail${x.unread ? ' unread' : ''}`);
+          h('button', { type: 'button', class: 'icon-btn home-mail-more', title: 'Actions', 'aria-haspopup': 'menu', 'aria-label': `Actions for ${x.subject || '(no subject)'}`,
+            onclick: (ev) => openMenu(ev.currentTarget, mailMenu(x)) }, svgIcon(ICONS.more))], `mail${x.unread ? ' unread' : ''}`);
       };
       const kids = [e.inbox.length ? h('ul', { class: 'home-list' }, ...e.inbox.slice(0, 6).map(item)) : empty('Your inbox is empty.')];
       if (e.todo.length) kids.push(h('h3', { class: 'home-h3' }, 'Flagged'), h('ul', { class: 'home-list' }, ...e.todo.slice(0, 6).map(item)));
@@ -306,7 +306,7 @@ export function init(ctx) {
     }
   };
 
-  // An email to a new chat. Discuss puts the email in the message box for the user to add what they
+  // An email to a new chat (from its … menu). Discuss puts the email in the message box for the user to add what they
   // want; Draft a reply sends at once, so Nova starts writing it. The server reads the email (by
   // the ref it listed) and writes the message, so the browser never handles Outlook's ids.
   async function handoff(x, mode) {
@@ -318,6 +318,45 @@ export function init(ctx) {
     } catch (err) { setStatus(err.message, true); }
   }
   const refreshMail = () => act(() => api('POST', '/api/email/refresh'), 'Email is up to date.');
+
+  // An email's … menu (v0.15.1). Delete asks first, and Move to folder asks which folder; Follow up
+  // flags it for today, or clears the flag if it has one. Outlook tasks only offer Discuss and Delete.
+  const subjectOf = (x) => x.subject || '(no subject)';
+  function mailMenu(x) {
+    const mail = x.kind !== 'task';
+    return [
+      { label: 'Discuss with Nova', action: () => handoff(x, 'discuss') },
+      { label: 'Draft a reply', hidden: !mail, action: () => handoff(x, 'reply') },
+      { label: x.flagged ? 'Clear follow-up flag' : 'Follow up today', hidden: !mail, action: () => mailAction(x, 'flag', { on: !x.flagged }, x.flagged ? 'Clearing the flag…' : 'Flagging…') },
+      { label: 'Move to folder…', hidden: !mail, action: () => moveMail(x) },
+      { label: 'Delete…', danger: true, action: () => deleteMail(x) }
+    ];
+  }
+  async function mailAction(x, action, body, busy) {
+    setStatus(busy);
+    try { const r = await api('POST', `/api/email/${x.ref}/${action}`, body); setStatus(r.message || 'Done.'); await load(); } catch (err) { setStatus(err.message, true); }
+  }
+  async function deleteMail(x) {
+    const from = x.kind === 'task' ? 'This Outlook task' : `The email from ${x.from || 'an unknown sender'}`;
+    if (!(await confirmDialog({ title: `Delete "${subjectOf(x)}"?`, message: `${from} goes to Deleted Items in Outlook, where you can still get it back.`,
+      confirm: x.kind === 'task' ? 'Delete task' : 'Delete email', danger: true }))) return;
+    mailAction(x, 'delete', {}, 'Deleting…');
+  }
+  async function moveMail(x) {
+    setStatus('Reading your folders…');
+    let folders, recent;
+    try { ({ folders, recent = [] } = await api('GET', `/api/email/${x.ref}/folders`)); setStatus(''); } catch (err) { setStatus(err.message, true); return; }
+    // The folders last moved to come first (the server keeps the last five), then the whole tree.
+    const parent = (p) => p.split('/').slice(0, -1).join('/');
+    const items = [
+      ...(recent.length ? [{ heading: 'Recent' }, ...recent.map((f) => ({ label: f.name, value: f.ref, hint: parent(f.path), quick: true })), { heading: 'All folders' }] : []),
+      ...folders.map((f) => ({ label: f.name, value: f.ref, indent: f.depth, disabled: f.current, hint: f.current ? 'here now' : '', search: f.path }))
+    ];
+    const pick = await listDialog({ title: 'Move to folder', message: `"${subjectOf(x)}"`, filterLabel: 'Find a folder', items });
+    if (!pick) return;
+    const chosen = [...recent, ...folders].find((f) => f.ref === pick);
+    mailAction(x, 'move', { folder: pick }, `Moving to ${chosen?.name || 'the folder'}…`);
+  }
 
   function discuss(t) {
     const from = t.scheduleName ? ` during the scheduled run "${t.scheduleName}"` : '';

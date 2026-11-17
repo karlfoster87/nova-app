@@ -1,7 +1,8 @@
 // Email in Nova (v0.15): the Home card's inbox and flagged items, handing one to a chat to discuss or
 // to draft a reply, and Nova's email tools. Settings → Email chooses the provider and turns it on.
 // Outlook on this computer (COM, outlook.js) is the only provider so far; PROVIDERS is where others,
-// such as POP or IMAP, would go, each with the same list / read / draftReply shape.
+// such as POP or IMAP, would go, each with the same list / read / draftReply / folders / move /
+// remove / flag shape.
 //
 // Whose mail: the provider reads the mailbox of whoever runs Nova, not of a profile, so only admins
 // may use it, checked here on every call. The list is cached and read again when it's older than
@@ -11,7 +12,9 @@
 // accepted if Nova listed it, so a request can never open an arbitrary item. Email text comes from
 // outside: the browser shows it as text, and chats get it labelled as information, not instructions.
 import crypto from 'node:crypto';
-import { config, saveConfig } from '../core/config.js';
+import path from 'node:path';
+import { config, saveConfig, DATA_DIR } from '../core/config.js';
+import { readJsonFile, replaceFile } from '../core/files.js';
 import { UserError } from '../core/errors.js';
 import { hub } from '../core/hub.js';
 import { isAdmin } from '../accounts/profiles.js';
@@ -43,7 +46,7 @@ const refOf = (entryId) => crypto.createHash('sha1').update(String(entryId)).dig
 function remember(item) {
   const ref = refOf(item.entryId);
   known.delete(ref);
-  known.set(ref, { entryId: item.entryId, storeId: item.storeId, kind: item.kind, subject: item.subject || '', from: item.from || '' });
+  known.set(ref, { entryId: item.entryId, storeId: item.storeId, folderId: item.folderId || null, kind: item.kind, subject: item.subject || '', from: item.from || '' });
   if (known.size > 2000) known.delete(known.keys().next().value);
   return ref;
 }
@@ -67,6 +70,7 @@ export function refreshEmail({ force = false } = {}) {
       const r = await provider().list(Math.max(5, Math.min(200, Number(config.email.maxItems) || 30)));
       const todo = (r.todo || []).map(shape).sort((a, b) => (a.due ?? Infinity) - (b.due ?? Infinity) || (b.received ?? 0) - (a.received ?? 0));
       cache = { at: Date.now(), tried: cache.tried, inbox: (r.inbox || []).map(shape), todo, unread: Number(r.unread) || 0, total: Number(r.total) || 0, error: null };
+      prefetchFolders();
     } catch (err) {
       if (!(err instanceof UserError)) console.error('Reading email failed:', err);
       cache = { ...cache, error: err instanceof UserError ? err.message : 'Reading email failed because of an error inside Nova.' };
@@ -189,6 +193,119 @@ export async function draftForNova(profile, { ref, body, reply_all = false }) {
   return `Saved in Outlook's Drafts as "${r.subject}"${r.to ? `, to ${r.to}` : ''}. ${r.shown ? 'It\'s open in Outlook' : 'Open it from Drafts in Outlook'} for the user to check and send. Nothing was sent.`;
 }
 
+// ---- Actions from the Home card (v0.15.1) ------------------------------------------
+// Delete (to Deleted Items, after the browser's confirmation), move to a folder, and follow up
+// (flag for today, or clear the flag). Folders travel by ref too, and only folders Nova listed
+// for the user are accepted. The cache is changed straight away so the card updates at once,
+// then Outlook is read again in the background to catch anything else.
+//
+// Reading a mailbox's folders over COM takes seconds (about 4 s for 147 folders), so the tree is
+// cached per mailbox (StoreID): the picker opens from the cache at once, and a tree older than
+// FOLDERS_FRESH is read again in the background, so new folders appear next time. The default
+// mailbox's tree is fetched ahead, after the first successful list. The last RECENT folders moved
+// to are kept in data/email.json, so they survive restarts, and lead the picker.
+const folderRefs = new Map(); // folder ref -> { entryId, storeId, path, name }
+const folderCache = new Map(); // storeId -> { at, list: [{ entryId, name, path, depth }] }
+const folderLoads = new Map(); // storeId ('' = the default mailbox) -> the read in progress
+const FOLDERS_FRESH = 10 * 60 * 1000, RECENT = 5;
+const STATE_FILE = path.join(DATA_DIR, 'email.json');
+let recentFolders = (readJsonFile(STATE_FILE)?.recentFolders || []).filter((f) => f?.entryId && f?.storeId).slice(0, RECENT);
+
+const folderRef = (storeId, entryId) => refOf(`${storeId}|${entryId}`);
+function shareFolder(storeId, f) {
+  const ref = folderRef(storeId, f.entryId);
+  if (folderRefs.size > 5000) folderRefs.clear();
+  folderRefs.set(ref, { entryId: f.entryId, storeId, path: f.path, name: f.name });
+  return ref;
+}
+
+// Reads one mailbox's tree (item's mailbox, or the default one with no item) into the cache.
+function loadFolders(item) {
+  const key = item?.storeId || '';
+  if (folderLoads.has(key)) return folderLoads.get(key);
+  const load = provider().folders(item)
+    .then((r) => { const entry = { at: Date.now(), list: r.folders || [] }; folderCache.set(r.storeId, entry); return entry; })
+    .finally(() => folderLoads.delete(key));
+  folderLoads.set(key, load);
+  return load;
+}
+
+// After a good list read: fetch the default mailbox's tree ahead if it isn't cached, so the first
+// Move to folder opens at once. It waits in Outlook's queue behind anything the user asked for.
+function prefetchFolders() {
+  if (!folderCache.size && !folderLoads.size) loadFolders(null).catch(() => {});
+}
+
+export async function emailFolders(profile, ref) {
+  const item = itemFor(profile, ref);
+  if (item.kind === 'task') throw new UserError('Outlook tasks stay in your task list, so they can\'t be moved to a mail folder.');
+  // A fetch-ahead of the default mailbox may be under way; its StoreID is only known when it
+  // ends, so wait for it rather than start a second read of the same tree.
+  if (!folderCache.has(item.storeId) && folderLoads.has('')) await folderLoads.get('').catch(() => {});
+  let tree = folderCache.get(item.storeId);
+  if (!tree) tree = await loadFolders(item);
+  else if (Date.now() - tree.at > FOLDERS_FRESH) loadFolders(item).catch(() => {});
+  const exists = new Set(tree.list.map((f) => f.entryId));
+  return {
+    folders: tree.list.map((f) => ({ ref: shareFolder(item.storeId, f), name: f.name, path: f.path, depth: f.depth, current: f.entryId === item.folderId })),
+    // Recent folders of this mailbox that still exist, newest first.
+    recent: recentFolders.filter((f) => f.storeId === item.storeId && exists.has(f.entryId) && f.entryId !== item.folderId)
+      .map((f) => ({ ref: shareFolder(f.storeId, f), name: f.name, path: f.path }))
+  };
+}
+
+function rememberFolder(folder) {
+  recentFolders = [{ storeId: folder.storeId, entryId: folder.entryId, name: folder.name, path: folder.path },
+    ...recentFolders.filter((f) => !(f.storeId === folder.storeId && f.entryId === folder.entryId))].slice(0, RECENT);
+  replaceFile(STATE_FILE, JSON.stringify({ recentFolders }, null, 2)).catch((err) => console.error('Saving recent email folders failed:', err.message));
+}
+
+function settle(ref, change) {
+  const gone = change === 'gone';
+  const was = cache.inbox.find((x) => x.ref === ref), any = was || cache.todo.find((x) => x.ref === ref);
+  if (gone) {
+    if (was) { cache.total = Math.max(0, cache.total - 1); if (was.unread) cache.unread = Math.max(0, cache.unread - 1); }
+    cache.inbox = cache.inbox.filter((x) => x.ref !== ref);
+    cache.todo = cache.todo.filter((x) => x.ref !== ref);
+    known.delete(ref); // a moved item gets a new EntryID in Exchange; the next list gives it a new ref
+  } else {
+    const on = change === 'flagged', today = new Date().setHours(0, 0, 0, 0);
+    cache.inbox = cache.inbox.map((x) => (x.ref === ref ? { ...x, flagged: on, due: on ? today : null } : x));
+    cache.todo = cache.todo.filter((x) => x.ref !== ref);
+    if (on && any) cache.todo.unshift({ ...any, flagged: true, due: today });
+  }
+  hub.toAll({ t: 'email_changed' });
+  Promise.resolve(inflight).catch(() => {}).then(() => refreshEmail({ force: true })).catch(() => {});
+}
+
+export async function emailAction(profile, ref, action, body = {}) {
+  const item = itemFor(profile, ref);
+  const what = `"${clip(item.subject || '(no subject)', 80)}"`;
+  if (action === 'delete') {
+    await provider().remove(item);
+    console.log(`${profile} deleted the email ${what} from Home.`);
+    settle(ref, 'gone');
+    return { ok: true, message: 'Moved to Deleted Items.' };
+  }
+  if (action === 'move') {
+    const folder = folderRefs.get(String(body.folder || ''));
+    if (!folder) throw new UserError('That folder isn\'t in Nova\'s list any more. Choose Move to folder again for a fresh list.', 404);
+    const r = await provider().move(item, folder);
+    console.log(`${profile} moved the email ${what} to ${folder.path}.`);
+    rememberFolder(folder);
+    settle(ref, 'gone');
+    return { ok: true, message: `Moved to ${r.folder || folder.path}.` };
+  }
+  if (action === 'flag') {
+    if (typeof body.on !== 'boolean') throw new UserError('Say whether to flag the email or clear its flag.');
+    if (item.kind === 'task') throw new UserError('That\'s an Outlook task, which is already on your to-do list.');
+    await provider().flag(item, body.on);
+    settle(ref, body.on ? 'flagged' : 'unflagged');
+    return { ok: true, message: body.on ? 'Flagged for follow-up today.' : 'Flag cleared.' };
+  }
+  throw new UserError('Nova doesn\'t know that email action.');
+}
+
 // ---- Settings → Email --------------------------------------------------------------
 export function emailSettings() {
   return {
@@ -215,6 +332,8 @@ export async function saveEmailSettings(profile, body) {
     saveConfig('email', patch);
     cache = { at: 0, tried: 0, inbox: [], todo: [], unread: 0, total: 0, error: null };
     known.clear();
+    folderCache.clear();
+    folderRefs.clear();
     console.log(`${profile} turned email ${config.email.enabled ? `on (${provider()?.label})` : 'off'}.`);
     hub.toAll({ t: 'email_changed' });
   }

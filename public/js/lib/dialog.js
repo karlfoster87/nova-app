@@ -75,6 +75,55 @@ export async function infoDialog({ title, body, wide = false }) {
 }
 
 /**
+ * Picks one item from a list that may be long, with a filter box above it (v0.15.1, first for
+ * an email's folder). Resolves with the chosen item's value, or null if cancelled.
+ * @param {{ title: string, message?: string, items: { label: string, value: string, hint?: string,
+ *           indent?: number, disabled?: boolean, search?: string, quick?: boolean } | { heading: string }][],
+ *           filterLabel?: string }} o
+ * Typing filters by `search` (default: label and hint), so a nested folder can match on its whole
+ * path; Enter in the box picks the first item still shown. Headings, and `quick` items (shortcuts
+ * repeated from the full list, like recent folders), show only while the box is empty, so a
+ * filtered list has no duplicates.
+ */
+export function listDialog({ title, message = '', items, filterLabel = 'Filter' }) {
+  const filter = h('input', { type: 'text', enterkeyhint: 'go', 'aria-label': filterLabel, placeholder: `${filterLabel}…`, autocomplete: 'off' });
+  const none = h('p', { class: 'muted', hidden: true }, 'Nothing matches.');
+  const heads = [];
+  const rows = [];
+  const kids = items.map((it) => {
+    if (it.heading) { const el = h('p', { class: 'list-pick-head' }, it.heading); heads.push(el); return el; }
+    const b = h('button', { type: 'button', class: 'list-pick-item', disabled: !!it.disabled, onclick: () => dialog.finish(it.value) },
+      h('span', {}, it.label), it.hint ? h('span', { class: 'muted' }, it.hint) : null);
+    b.style.paddingLeft = `${10 + 16 * Math.min(it.indent || 0, 8)}px`;
+    b.dataset.text = (it.search || `${it.label} ${it.hint || ''}`).toLowerCase();
+    if (it.quick) b.dataset.quick = '1';
+    rows.push(b);
+    return b;
+  });
+  const list = h('div', { class: 'list-pick', role: 'list' }, ...kids);
+  filter.addEventListener('input', () => {
+    const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let shown = 0;
+    for (const el of heads) el.hidden = words.length > 0;
+    for (const b of rows) {
+      b.hidden = (words.length > 0 && !!b.dataset.quick) || !words.every((w) => b.dataset.text.includes(w));
+      if (!b.hidden) shown++;
+    }
+    none.hidden = shown > 0;
+  });
+  filter.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    rows.find((b) => !b.hidden && !b.disabled)?.click();
+  });
+  const heading = h('h2', { id: `list-${Math.random().toString(36).slice(2)}` }, title);
+  const dialog = h('dialog', { class: 'settings small-dialog list-dialog', 'aria-labelledby': heading.id },
+    h('div', { class: 'stack' }, heading, message ? h('p', { class: 'confirm-message' }, message) : null, filter, list, none,
+      h('div', { class: 'row' }, h('span', { class: 'spacer' }), h('button', { type: 'button', class: 'text-btn', onclick: () => dialog.finish(null) }, 'Cancel'))));
+  return show(dialog, filter);
+}
+
+/**
  * Asks for one value. Resolves with it, or null if cancelled.
  * @param {{ title: string, label: string, value?: string, type?: string, multiline?: boolean,
  *           submit?: string, maxLength?: number }} o

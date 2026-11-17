@@ -14,3 +14,13 @@
 .menu-heading { margin: 6px 10px 2px; font-size: 10.5px; color: var(--accent); }
 .small-dialog { width: min(380px, 92vw); }
 .small-dialog h2 { margin-bottom: 4px; }
+/* listDialog: a filter box over a scrolling list of choices (indented by the caller, e.g. a folder tree). */
+.list-dialog { width: min(440px, 94vw); }
+.list-pick { max-height: min(50vh, 420px); overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 1px; padding: 4px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--shade); }
+.list-pick-item { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 2px; cursor: pointer; color: var(--ink); font: inherit; font-size: 13px; }
+.list-pick-item > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.list-pick-item .muted { font-size: 11.5px; }
+.list-pick-item:hover:not(:disabled), .list-pick-item:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+.list-pick-item:disabled { color: var(--muted); cursor: default; }
+.list-pick-head { margin: 6px 10px 2px; font-size: 10.5px; font-weight: 700; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; }
+.list-pick-head:first-child { margin-top: 2px; }

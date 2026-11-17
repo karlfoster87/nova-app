@@ -14,7 +14,8 @@ const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'outlook.
 const ERRORS = {
   'not-running': ['Outlook isn\'t open on this computer. Open classic Outlook (not the new Outlook app) and try again.', 409],
   gone: ['Outlook can\'t find that email any more. It may have been moved or deleted. Refresh the list and try again.', 404],
-  'not-mail': ['That item is an Outlook task, not an email, so there\'s nothing to reply to.', 400]
+  'not-mail': ['That item is an Outlook task, not an email, so Nova can\'t do that with it.', 400],
+  'no-folder': ['Outlook can\'t find that folder any more. Choose Move to folder again for a fresh list.', 404]
 };
 
 // Requests queue behind each other: Outlook's object model is single-threaded anyway, and one
@@ -65,5 +66,9 @@ export const outlookCom = {
   unavailable: 'Outlook on this computer only works when Nova runs on Windows, alongside classic Outlook.',
   list: (limit) => runOutlook({ action: 'list', limit }),
   read: (item) => runOutlook({ action: 'read', entryId: item.entryId, storeId: item.storeId }),
-  draftReply: (item, body, replyAll) => runOutlook({ action: 'draft', entryId: item.entryId, storeId: item.storeId, body, replyAll: !!replyAll })
+  draftReply: (item, body, replyAll) => runOutlook({ action: 'draft', entryId: item.entryId, storeId: item.storeId, body, replyAll: !!replyAll }),
+  folders: (item) => runOutlook(item ? { action: 'folders', entryId: item.entryId, storeId: item.storeId } : { action: 'folders' }), // no item: the default mailbox
+  move: (item, folder) => runOutlook({ action: 'move', entryId: item.entryId, storeId: item.storeId, folderId: folder.entryId, folderStoreId: folder.storeId }),
+  remove: (item) => runOutlook({ action: 'delete', entryId: item.entryId, storeId: item.storeId }),
+  flag: (item, on) => runOutlook({ action: 'flag', entryId: item.entryId, storeId: item.storeId, on: !!on })
 };
