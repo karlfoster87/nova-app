@@ -113,7 +113,7 @@
 }
 
 /* ---- Settings → Calendars ---------------------------------------------- */
-#settings { width: min(660px, 94vw); } /* room for the six tabs on one row */
+#settings { width: min(720px, 94vw); } /* room for the seven tabs on one row */
 #calendarBox { margin-bottom: 18px; }
 #calendarRows { margin-bottom: 0; }
 .cal-row-name { display: flex; align-items: center; gap: 8px; min-width: 0; }

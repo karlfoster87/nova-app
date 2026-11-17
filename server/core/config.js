@@ -118,6 +118,15 @@ const defaults = {
     maxPerProfile: 20,    // calendars one profile may link
     timeZone: null        // IANA zone for Nova's calendar tool and for feeds' floating times; null = this machine's
   },
+  email: {
+    // Email on Home and in chats (email/), set in Settings → Email. Admins only: it reads the
+    // mailbox of the account Nova runs as.
+    enabled: false,
+    provider: 'outlook-com', // the only one so far: classic Outlook on this computer, over COM (Windows)
+    maxItems: 30,            // the newest inbox items, and the most flagged ones, read each time
+    refreshSeconds: 60,      // a list older than this is read again when Home or a chat asks
+    timeoutSec: 30           // Outlook taking longer than this (a security prompt, say) fails the request
+  },
   thought: {
     keepDays: 180         // Train of Thought entries older than this are deleted, except questions still open
   },

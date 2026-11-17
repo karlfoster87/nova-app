@@ -90,6 +90,20 @@
 .home-meter.warn strong { color: var(--warn); }
 .home-meter.bad strong { color: var(--bad); }
 .home-busy { display: grid; gap: 6px; }
+/* Email: sender and time over the subject, with Discuss and Draft a reply as icon buttons. Unread mail is bold, with an accent edge. */
+.home-mail-unread { color: var(--muted); font-size: 11px; letter-spacing: 0.06em; text-transform: none; font-weight: 600; }
+.home-row-mail { gap: 6px; padding-right: 2px; border-left: 2px solid transparent; }
+.home-row-mail.unread { border-left-color: var(--accent); }
+.home-mail { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.home-mail-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.home-mail-head strong { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-row-mail.unread .home-mail-head strong { font-weight: 700; }
+.home-mail-head time { flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.home-mail-subject { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-row-mail.unread .home-mail-subject { color: var(--ink); }
+.home-mail-btns { flex: none; display: flex; }
+.home-mail-btns .icon-btn { padding: 5px; }
+.home-mail-btns .icon-btn svg { width: 17px; height: 17px; }
 
 @media (max-width: 760px) {
   .home-doc { padding: 14px 0 20px; }

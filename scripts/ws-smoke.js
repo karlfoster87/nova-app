@@ -394,6 +394,7 @@ async function brain(a, b, c) {
   await heartbeatRoutes(a, b, c);
   await homeRoutes(a, b, c);
   await calendarRoutes(a, b, c);
+  await emailRoutes(a, b, c);
   await brainVideo(a, c);
   await brainPages(a, b, c);
   await brainFiles(b, c);
@@ -1204,6 +1205,7 @@ async function novaToolChecks() {
   try {
     const tools = (p) => new Map(novaTools(p).map((d) => [d.name, d]));
     const mine = tools('smoke-tools');
+    t(![...tools('smoke-a').keys()].some((n) => n.startsWith('email_')), 'chats get no email tools while email is off, even an admin\'s');
     const call = async (name, args = {}, map = mine) => {
       const r = await map.get(name).handler(args, {});
       const text = r.content?.[0]?.text || '';
@@ -1675,7 +1677,7 @@ async function homeRoutes(a, b, c) {
   check((await http('GET', '/api/home')).status === 401, 'Home needs a session');
   const ha = await home(a);
   check(ha && Array.isArray(ha.waiting) && Array.isArray(ha.running) && ha.cards?.email === false && ha.cards?.calendar === true && ha.calendar?.linked === 0,
-    'Home lists what waits and what runs, with the Email card reserved but off and the Calendar card on');
+    'Home lists what waits and what runs, with the Email card off until email is turned on and the Calendar card on');
   check(ha?.today && typeof ha.today.left === 'number' && Array.isArray(ha.notes) && ha.thought && ha.schedules && !('briefing' in ha),
     'an admin\'s Home has every card');
   let ok = true;
@@ -1738,6 +1740,32 @@ async function icsChecks() {
 // Linked calendars (routes/calendar.js): each profile's own, feed addresses never sent back, and
 // outbound fetches kept off the local network for non-admins. The feed comes from a small server
 // in this process; smoke-a is an admin, so it may use http and 127.0.0.1.
+// Email (server/email/): Settings → Email and the Home card's routes are admin-only, nothing works
+// until it's turned on (novaToolChecks checks the chat tools stay away too). The smoke test never turns it
+// on, since that would read the real Outlook of whoever runs it.
+async function emailRoutes(a, b, c) {
+  const evil = 'http://evil.example';
+  check((await http('GET', '/api/settings/email')).status === 401 && (await http('POST', '/api/email/refresh', { body: {} })).status === 401, 'email needs a session');
+  const s = (await http('GET', '/api/settings/email', { cookie: a })).data;
+  check(s?.enabled === false && s.provider === 'outlook-com' && s.providers?.some((p) => p.id === 'outlook-com') && s.status === null,
+    'Settings → Email offers Outlook COM, turned off');
+  check((await http('GET', '/api/settings/email', { cookie: b })).status === 403 && (await http('POST', '/api/settings/email', { cookie: b, body: { enabled: true } })).status === 403,
+    'only an admin sees or changes the email settings');
+  check((await http('POST', '/api/settings/email', { cookie: a, body: { provider: 'pop3' } })).status === 400
+    && (await http('POST', '/api/settings/email', { cookie: a, body: { enabled: 'yes' } })).status === 400, 'an unknown provider or a non-boolean switch is refused');
+  check((await http('POST', '/api/settings/email', { cookie: a, origin: evil, body: { enabled: false } })).status === 403, 'a cross-origin email settings change is refused');
+  const same = await http('POST', '/api/settings/email', { cookie: a, body: { provider: 'outlook-com', enabled: false } });
+  check(same.status === 200 && same.data?.changed === false && same.data?.enabled === false, 'saving the same email settings changes nothing');
+  check((await http('POST', '/api/email/refresh', { cookie: a, body: {} })).status === 409, 'reading email while it\'s off says to turn it on');
+  check((await http('POST', '/api/email/refresh', { cookie: b, body: {} })).status === 403 && (await http('POST', '/api/email/refresh', { cookie: c, body: {} })).status === 403,
+    'a non-admin can\'t read email');
+  check((await http('POST', '/api/email/0123456789ab/handoff', { cookie: a, body: { mode: 'discuss' } })).status === 409
+    && (await http('POST', '/api/email/0123456789ab/handoff', { cookie: b, body: { mode: 'reply' } })).status === 403
+    && (await http('POST', '/api/email/not-a-ref/handoff', { cookie: a, body: { mode: 'reply' } })).status === 404, 'a hand-off needs email on, an admin and a listed ref');
+  const home = (await http('GET', '/api/home?today=2026-10-03', { cookie: a })).data;
+  check(home?.cards?.email === false && !('email' in home), 'Home leaves the Email card out while email is off');
+}
+
 async function calendarRoutes(a, b, c) {
   const httpMod = await import('node:http');
   const feed = ['BEGIN:VCALENDAR', 'X-WR-CALNAME:Smoke calendar',

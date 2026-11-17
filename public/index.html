@@ -216,6 +216,7 @@
       <button type="button" role="tab" data-tab="profile" aria-selected="true">Your profile</button>
       <button type="button" role="tab" data-tab="permissions">Permissions</button>
       <button type="button" role="tab" data-tab="calendars">Calendars</button>
+      <button type="button" role="tab" data-tab="email" data-admin>Email</button>
       <button type="button" role="tab" data-tab="profiles" data-admin>Profiles</button>
       <button type="button" role="tab" data-tab="claude" data-admin>Claude</button>
       <button type="button" role="tab" data-tab="updates" data-admin>Updates</button>
@@ -343,6 +344,21 @@
           <p class="muted">A private address works like a password for the calendar: Nova keeps it on the server and never shows it again in full. If it leaks, reset it at the calendar provider and add the new one here.</p>
         </details>
         <div class="row"><button type="submit" class="send-btn">Add calendar</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
+    </section>
+
+    <section class="panel" data-panel="email" role="tabpanel" hidden>
+      <form id="emailForm" class="stack">
+        <h3>Email</h3>
+        <p class="muted">Shows your inbox and the mail you've flagged on Home. From any email you can discuss it with Nova or have Nova draft a reply, which is saved in your drafts for you to check and send. Nova never sends mail. It reads the mailbox of the account Nova runs as, so it's for admins only.</p>
+        <label>Provider <select name="provider" id="emailProvider"></select></label>
+        <p class="muted" id="emailProviderNote"></p>
+        <label class="check"><input type="checkbox" name="enabled"> Turn on email</label>
+        <div class="row">
+          <button type="submit" class="send-btn">Save</button>
+          <button type="button" class="text-btn" id="emailCheck">Check connection</button>
+        </div>
         <p class="form-status" role="status"></p>
       </form>
     </section>

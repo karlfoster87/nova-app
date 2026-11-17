@@ -6,8 +6,8 @@
 //
 // Everything comes from one call, /api/home (server/home/home.js), which leaves out cards the
 // profile can't use; quick actions use the views' own routes. Home hears every server message
-// (watch) and reloads, debounced, when one could change a card. Email is a reserved slot in CARDS,
-// drawn only once the server switches it on. The Calendar card (v0.14) is the only way into the
+// (watch) and reloads, debounced, when one could change a card. The Email card (v0.15) shows for
+// admins once Settings → Email turns it on. The Calendar card (v0.14) is the only way into the
 // full calendar page (views/calendar.js).
 import { h, svgIcon } from '../lib/dom.js';
 import { api } from '../lib/api.js';
@@ -25,7 +25,9 @@ const ICONS = {
   status: ['M4 20V10M10 20V4M16 20v-7M22 20H2'],
   email: ['M3 5h18v14H3Z', 'm3 6 9 7 9-7'],
   calendar: ['M4 5h16v15H4Z', 'M4 10h16M9 3v4M15 3v4'],
-  send: ['M4 12 20 4l-6 16-3-7Z']
+  send: ['M4 12 20 4l-6 16-3-7Z'],
+  discuss: ['M4 5h16v11H9l-5 4Z'],
+  reply: ['M9 7 4 12l5 5', 'M4 12h11a5 5 0 0 1 5 5v2']
 };
 // Waiting changes the most and comes first; the reserved slots sit beside what they belong with.
 const TASK_STATE = { waiting: 'Waiting', in_progress: 'In progress', complete: 'Complete' };
@@ -33,7 +35,7 @@ const ORDER = ['waiting', 'email', 'calendar', 'today', 'activity', 'status'];
 const TITLES = { waiting: 'Waiting on you', email: 'Email', calendar: 'Calendar', today: 'Today', activity: 'Nova\'s activity', status: 'Plan & status' };
 // Server messages after which a card may read differently.
 const WATCH = new Set(['permission', 'permission_resolved', 'permission_cancelled', 'state', 'chats_changed', 'tasks_changed',
-  'notes_changed', 'thought_changed', 'heartbeat_changed', 'profile_changed', 'calendars_changed']);
+  'notes_changed', 'thought_changed', 'heartbeat_changed', 'profile_changed', 'calendars_changed', 'email_changed']);
 
 const clock = (ms) => new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 function when(ms) {
@@ -171,8 +173,34 @@ export function init(ctx) {
       return { extra: count(items.length), kids: [items.length ? h('ul', { class: 'home-list' }, ...items) : empty('Nothing needs you.')] };
     },
 
-    // Reserved until the Outlook feature ships; the server switches it on.
-    email() { return data.cards?.email ? { kids: [empty('Email isn\'t set up yet.')] } : null; },
+    // The inbox's newest mail, then what's flagged or to do, for admins once Settings → Email turns
+    // it on (the server leaves it out otherwise). Each item can start a chat about it, or one that
+    // drafts a reply straight away. Mail text comes from outside, so it's only put in as text.
+    email() {
+      const e = data.cards?.email && data.email;
+      if (!e) return null;
+      const extra = e.unread ? [h('span', { class: 'home-mail-unread' }, `${e.unread} unread`)] : [];
+      if (!e.at) {
+        return { extra, kids: e.error ? [h('p', { class: 'home-warn' }, e.error), h('div', { class: 'home-actions' }, link('Try again', refreshMail))] : [empty(`Reading ${e.provider}…`)] };
+      }
+      const item = (x) => {
+        const time = x.kind === 'task' || (x.flagged && x.due) ? (x.due ? `due ${dayName(localDay(new Date(x.due)), { day: 'numeric', month: 'short' })}` : '') : x.received ? when(x.received) : '';
+        const who = x.kind === 'task' ? 'Task' : x.from || 'Unknown sender';
+        const btn = (mode, label, icon) => h('button', { type: 'button', class: 'icon-btn', title: label, 'aria-label': `${label}: ${x.subject || '(no subject)'}`, onclick: () => handoff(x, mode) }, svgIcon(icon));
+        return row([
+          h('div', { class: 'home-mail', title: x.preview || '' },
+            h('div', { class: 'home-mail-head' }, h('strong', {}, who), time ? h('time', {}, time) : null),
+            h('span', { class: 'home-mail-subject' }, x.subject || '(no subject)')),
+          h('div', { class: 'home-mail-btns' },
+            btn('discuss', 'Discuss with Nova', ICONS.discuss),
+            x.kind === 'task' ? null : btn('reply', 'Draft a reply', ICONS.reply))], `mail${x.unread ? ' unread' : ''}`);
+      };
+      const kids = [e.inbox.length ? h('ul', { class: 'home-list' }, ...e.inbox.slice(0, 6).map(item)) : empty('Your inbox is empty.')];
+      if (e.todo.length) kids.push(h('h3', { class: 'home-h3' }, 'Flagged'), h('ul', { class: 'home-list' }, ...e.todo.slice(0, 6).map(item)));
+      if (e.error) kids.push(h('p', { class: 'home-warn home-small' }, `Couldn't update: ${e.error}`));
+      kids.push(h('div', { class: 'home-actions' }, h('span', { class: 'muted home-small' }, `Updated ${clock(e.at)}`), link('Refresh', refreshMail)));
+      return { extra, kids };
+    },
 
     // Today's events, then the coming week's, from the calendars this profile shows. An event opens
     // its details (with Discuss with Nova); Open calendar is the only way to the full page.
@@ -277,6 +305,19 @@ export function init(ctx) {
       return { kids };
     }
   };
+
+  // An email to a new chat. Discuss puts the email in the message box for the user to add what they
+  // want; Draft a reply sends at once, so Nova starts writing it. The server reads the email (by
+  // the ref it listed) and writes the message, so the browser never handles Outlook's ids.
+  async function handoff(x, mode) {
+    setStatus(mode === 'reply' ? 'Reading the email for Nova…' : 'Reading the email…');
+    try {
+      const { text } = await api('POST', `/api/email/${x.ref}/handoff`, { mode });
+      setStatus('');
+      await (mode === 'reply' ? askNova(text) : startChat(text));
+    } catch (err) { setStatus(err.message, true); }
+  }
+  const refreshMail = () => act(() => api('POST', '/api/email/refresh'), 'Email is up to date.');
 
   function discuss(t) {
     const from = t.scheduleName ? ` during the scheduled run "${t.scheduleName}"` : '';

@@ -1,5 +1,5 @@
 // The Settings dialog: its tabs, and which of them this profile sees. Your profile, Permissions
-// and Calendars are everyone's; Profiles, Claude and Updates are admin-only, hidden for users
+// and Calendars are everyone's; Email, Profiles, Claude and Updates are admin-only, hidden for users
 // (the server refuses them regardless). Each tab lives in its own module here.
 import { $ } from '../lib/dom.js';
 import { isAdmin } from './forms.js';
@@ -7,12 +7,13 @@ import { fillProfile } from './profile.js';
 import { fillVoice } from './voice.js';
 import { loadPermissions } from './permissions.js';
 import { loadCalendars } from './calendars.js';
+import { loadEmail } from './email.js';
 import { loadProfiles } from './profiles.js';
 import { loadClaude } from './claude.js';
 import { loadUpdates } from './updates.js';
 
 const dlg = $('settings');
-const LOADERS = { permissions: loadPermissions, calendars: loadCalendars, profiles: loadProfiles, claude: loadClaude, updates: loadUpdates };
+const LOADERS = { permissions: loadPermissions, calendars: loadCalendars, email: loadEmail, profiles: loadProfiles, claude: loadClaude, updates: loadUpdates };
 
 export function showTab(name) {
   if (!isAdmin() && !['profile', 'permissions', 'calendars'].includes(name)) name = 'profile';

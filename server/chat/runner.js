@@ -16,6 +16,7 @@ import { HANDOFF_REQUEST, warmHandoff, usageTokens, bigChat, sessionOf, cutFor }
 import { can } from '../accounts/access.js';
 import { soulPrompt } from '../soul/soul.js';
 import { pushChatEvent } from '../push/notify.js';
+import { emailNote } from '../email/email.js';
 
 // Message types forwarded to the browser. Everything else stays server-side.
 const FORWARD = new Set([
@@ -180,6 +181,7 @@ export class ChatRunner { // exported for scripts/ws-smoke.js; chats.js goes thr
           `Notes specific to this profile live in ${profileDir(profile)}; read them when context about the profile would help.` +
           (buildsApps(profile) ? appsNote() : '') +
           (keepsThoughts(profile) ? thoughtNote(profile) : '') +
+          emailNote(profile) + // email work: Nova's own Outlook tools first, a connector only where they fall short
           (background ? runNote(background.name) : '') +
           soulPrompt() // the admin's Soul, last, so it can't come before who Nova is
       },
