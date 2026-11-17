@@ -75,9 +75,7 @@
 .home-actions { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; font-size: 12.5px; }
 .home-actions .text-btn { padding: 4px 12px; }
 .home-task { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.home-row-task input { accent-color: var(--accent); margin: 0; flex: none; width: 15px; height: 15px; }
-.home-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; box-shadow: 0 0 6px var(--glow); }
-.home-chip { margin-left: 8px; padding: 0 7px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.home-row-task .task-state { margin-top: 0; }
 .home-notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
 .home-note {
   min-width: 0; max-height: 7.5em; overflow: hidden; padding: 8px 10px; border: 1px solid var(--line-bright); border-radius: var(--r-sm);

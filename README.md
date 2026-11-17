@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.13.1 · Node 22.15+ · five dependencies · no build step
+Version 0.13.2 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -18,7 +18,7 @@ Version 0.13.1 · Node 22.15+ · five dependencies · no build step
 
 ### Home: your day at a glance
 
-Nova opens on Home: the sidebar widens across the page, so your profile, home and settings buttons stay exactly where they always are, with the view tabs beside them and the cards below. It gathers what matters right now: chats waiting for your approval or answer, replies you haven't read, Nova's open questions and anything its scheduled runs held back; today's tasks to tick off and your active sticky notes; what Nova has been doing and what's next on its schedule; and your plan usage with reset times. Most things can be dealt with right there: tick a task, answer or dismiss a question, mark an action reviewed, run a schedule now, or type into the Ask Nova box to start a chat. Get back to it with the home button beside your profile name or the Nova logo; a new chat left untouched for five minutes goes back to Home by itself. Each card shows only what the profile can use.
+Nova opens on Home: the sidebar widens across the page, so your profile, home and settings buttons stay exactly where they always are, with the view tabs beside them and the cards below. It gathers what matters right now: chats waiting for your approval or answer, replies you haven't read, Nova's open questions; today's tasks, with the same square as the task board (click once to start one, again to finish it) and your active sticky notes; what Nova has been doing and what's next on its schedule; and your plan usage with reset times. Most things can be dealt with right there: start or finish a task, answer or dismiss a question, run a schedule now, or type into the Ask Nova box to start a chat. Get back to it with the home button beside your profile name or the Nova logo; a new chat left untouched for five minutes goes back to Home by itself. Each card shows only what the profile can use.
 
 ### A chat built for an agent
 

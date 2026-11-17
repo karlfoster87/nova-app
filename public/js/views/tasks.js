@@ -303,7 +303,17 @@ export function init(ctx) {
       ? [column({ key: 'none', day: null, title: 'Unscheduled', sub: 'No day yet', list: kids.get('day:') || [] })]
       : boardDays().map(dayColumn);
     board.classList.toggle('single', showUnscheduled);
+    // Every change redraws the columns, so each list's scroll position (and that of anything
+    // scrolling round the board, as on a phone) is put back; a long list would jump otherwise.
+    const lists = new Map([...board.querySelectorAll('.task-col')].map((c) => [c.dataset.day, c.querySelector('.task-list')?.scrollTop || 0]));
+    const outer = [];
+    for (let el = board.parentElement; el; el = el.parentElement) if (el.scrollTop) outer.push([el, el.scrollTop]);
     board.replaceChildren(...cols);
+    for (const c of board.querySelectorAll('.task-col')) {
+      const top = lists.get(c.dataset.day), list = c.querySelector('.task-list');
+      if (top && list) list.scrollTop = top;
+    }
+    for (const [el, top] of outer) el.scrollTop = top;
     align();
     renderDays();
     if (refocus) { board.querySelector(`[data-day="${refocus}"] .task-add input`)?.focus(); refocus = null; }

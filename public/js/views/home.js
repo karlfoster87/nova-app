@@ -26,6 +26,7 @@ const ICONS = {
   send: ['M4 12 20 4l-6 16-3-7Z']
 };
 // Waiting changes the most and comes first; the reserved slots sit beside what they belong with.
+const TASK_STATE = { waiting: 'Waiting', in_progress: 'In progress', complete: 'Complete' };
 const ORDER = ['waiting', 'email', 'calendar', 'today', 'activity', 'status'];
 const TITLES = { waiting: 'Waiting on you', email: 'Email', calendar: 'Calendar', today: 'Today', activity: 'Nova\'s activity', status: 'Plan & status' };
 // Server messages after which a card may read differently.
@@ -179,11 +180,17 @@ export function init(ctx) {
       if (t) {
         kids.push(h('p', { class: 'home-sub' }, t.left ? `${t.left} left${t.done ? `, ${t.done} done` : ''}` : t.done ? `All ${t.done} done` : 'Nothing planned for today'));
         if (t.items.length) {
-          kids.push(h('ul', { class: 'home-list' }, ...t.items.map((x) => row([
-            t.canEdit ? h('input', { type: 'checkbox', 'aria-label': `Mark "${x.title}" complete`,
-              onchange: () => act(() => api('PATCH', `/api/tasks/${x.id}`, { state: 'complete' }), 'Task done.') }) : h('span', { class: 'home-dot' }),
-            h('span', { class: 'home-task' }, x.title, x.under ? h('span', { class: 'muted' }, ` · ${x.under}`) : null,
-              x.state === 'in_progress' ? h('span', { class: 'home-chip' }, 'In progress') : null)], 'task'))));
+          // The task board's square (tasks.css .task-state): empty, half filled in progress, full when
+          // complete; a click moves it on, as on the board. A finished task leaves the list.
+          kids.push(h('ul', { class: 'home-list' }, ...t.items.map((x) => {
+            const name = TASK_STATE[x.state] || TASK_STATE.waiting, next = x.state === 'in_progress' ? 'complete' : 'in_progress';
+            return row([
+              h('button', { type: 'button', class: `task-state ${x.state}`, disabled: !t.canEdit,
+                title: t.canEdit ? `${name}. Click for ${TASK_STATE[next].toLowerCase()}` : name,
+                'aria-label': `${x.title}: ${name.toLowerCase()}${t.canEdit ? `. Change to ${TASK_STATE[next].toLowerCase()}` : ''}`,
+                onclick: () => act(() => api('PATCH', `/api/tasks/${x.id}`, { state: next }), next === 'complete' ? 'Task done.' : 'Task started.') }),
+              h('span', { class: 'home-task' }, x.title, x.under ? h('span', { class: 'muted' }, ` · ${x.under}`) : null)], 'task');
+          })));
         }
         kids.push(h('div', { class: 'home-actions' }, link('Open Tasks', () => goTo({ id: 'tasks' }))));
       }

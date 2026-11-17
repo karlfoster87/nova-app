@@ -39,9 +39,16 @@ function chatsNow(profile) {
 function today(profile, day) {
   const all = listTasks(profile, day).tasks;
   const byId = new Map(all.map((t) => [t.id, t]));
-  const parents = new Set(all.map((t) => t.parentId).filter(Boolean));
-  const topOf = (t) => { while (t.parentId && byId.has(t.parentId)) t = byId.get(t.parentId); return t; };
-  const leaves = all.filter((t) => !parents.has(t.id) && topOf(t).day === day);
+  // The board's order (views/tasks.js in the browser): by position, then age, each task followed
+  // by its subtasks, so Home lists today's tasks as they appear on the board.
+  const kids = new Map();
+  for (const t of [...all].sort((a, b) => a.position - b.position || a.createdAt - b.createdAt)) {
+    const key = t.parentId && byId.has(t.parentId) ? t.parentId : t.parentId ? null : `day:${t.day ?? ''}`;
+    if (key) { if (!kids.has(key)) kids.set(key, []); kids.get(key).push(t); }
+  }
+  const leaves = [];
+  const walk = (t) => { const sub = kids.get(t.id); if (sub) sub.forEach(walk); else leaves.push(t); };
+  (kids.get(`day:${day}`) || []).forEach(walk);
   const left = leaves.filter((t) => t.state !== 'complete');
   return {
     left: left.length, done: leaves.length - left.length,
