@@ -7,14 +7,12 @@
 import { h, svgIcon } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { confirmDialog } from '../lib/dialog.js';
-import { openMenu } from '../lib/menu.js';
 import { state } from '../state.js';
 import { Transcript } from '../chat/transcript.js';
 import { goToChat } from '../shell/views.js';
 
 const PULSE = ['M3 12h4l2-6 4 12 2-6h6'];
 const PLUS = ['M12 5v14M5 12h14'];
-const MORE = ['M5 12h.01M12 12h.01M19 12h.01'];
 const BACK = ['M15 18l-6-6 6-6'];
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -46,7 +44,7 @@ export function init(ctx) {
   side.append(h('div', { class: 'brain-side-head' }, h('span', { class: 'cat-label' }, 'Heartbeat'), newBtn), listEl,
     h('div', { class: 'soul-about hb-about' },
       h('p', {}, 'Work Nova does by itself, on a timetable. Ask Nova to schedule something, or add it here.'),
-      h('p', { class: 'muted' }, 'Runs behind the scenes are non-destructive: anything that would delete, overwrite or change things is held back for you in Thought.')));
+      h('p', { class: 'muted' }, 'Runs behind the scenes can use any tool without asking, so the prompt is what sets their limits. Each one notes its outcome in Thought.')));
 
   const crumbs = h('p', { class: 'brain-crumbs' });
   const actions = h('div', { class: 'brain-actions' });
@@ -122,8 +120,7 @@ export function init(ctx) {
           : h('button', { type: 'button', class: 'text-btn', onclick: () => act('run') }, 'Run now'),
         h('button', { type: 'button', class: 'text-btn', onclick: () => act(s.enabled ? 'pause' : 'resume') }, s.enabled ? 'Pause' : 'Resume'),
         h('button', { type: 'button', class: 'text-btn', onclick: () => openEdit() }, 'Edit'),
-        h('button', { type: 'button', class: 'icon-btn', title: 'More', 'aria-label': 'More actions', 'aria-haspopup': 'menu',
-          onclick: (e) => openMenu(e.currentTarget, [{ label: 'Delete schedule', danger: true, action: () => remove(s) }]) }, svgIcon(MORE)));
+        h('button', { type: 'button', class: 'text-btn', onclick: () => remove(s) }, 'Delete'));
     }
     const fact = (label, ...value) => [h('dt', {}, label), h('dd', {}, ...value)];
     const chatLink = (c) => h('button', { type: 'button', class: 'link-btn', onclick: () => goToChat(c.id) }, `“${c.title}”`);
@@ -136,9 +133,10 @@ export function init(ctx) {
       canEdit() ? null : h('p', { class: 'brain-readonly' }, 'View only: this profile can see its schedules but not change them.'),
       h('dl', { class: 'hb-facts' },
         ...fact('When', s.cadence, s.at ? h('span', { class: 'muted' }, ' (server time)') : null),
-        ...fact('Next run', s.running ? 'Running now' : s.nextRun ? `${when(s.nextRun)} (${relative(s.nextRun)})` : 'Paused'),
+        ...fact('Next run', s.running ? 'Running now' : s.nextRun ? `${when(s.nextRun)} (${relative(s.nextRun)})` : s.onceAt && s.lastRun ? 'Done' : 'Paused'),
         ...fact('Runs', s.targetChat ? ['In the chat ', chatLink(s.targetChat)] : 'Behind the scenes, in a fresh session each time'),
         ...fact('Model', [modelName(s.model), s.effort ? `, ${s.effort} effort` : ''].join('')),
+        ...(s.checkScript ? fact('Checks first with', h('code', {}, s.checkScript), h('span', { class: 'muted' }, ' (runs only when it prints something)')) : []),
         ...fact('Last run', ...last),
         ...fact('Runs so far', String(s.runs)),
         ...fact('Made', `${s.createdBy === 'nova' ? 'by Nova' : 'by you'} on ${when(s.createdAt)}`, s.createdChat ? [' in ', chatLink(s.createdChat)] : null)),
@@ -236,7 +234,7 @@ export function init(ctx) {
     t.setBusy(d.running);
     doc.replaceChildren(h('div', { class: 'hb-run-view' },
       h('p', { class: 'brain-readonly' }, d.running ? 'This run is still going. The transcript updates by itself.'
-        : 'A behind-the-scenes run: nobody was asked anything, and anything destructive was held back.'),
+        : 'A behind-the-scenes run: nobody was asked anything.'),
       d.messages.length ? t.el : h('p', { class: 'muted' }, 'Nothing was saved for this run.')));
   }
 
@@ -271,20 +269,26 @@ export function init(ctx) {
     return ok;
   }
 
+  // datetime-local values: YYYY-MM-DDTHH:MM in this browser's time.
+  const localStamp = (ms) => { const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+  const tomorrowAt8 = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); return d.getTime(); };
+
   function fields(s) {
     const input = (attrs, value) => { const el = h('input', attrs); if (value != null) el.value = value; el.addEventListener('input', () => { formDirty = true; }); return el; };
     const f = {
       name: input({ type: 'text', maxlength: 80, required: true, placeholder: 'Home Assistant check-in' }, s?.name),
       prompt: h('textarea', { rows: 7, maxlength: 4000, required: true,
         placeholder: 'Look at what happened in Home Assistant in the last hour. If you notice a pattern or anything worth thinking about, such as something we might automate, raise it as a question.' }),
-      kind: s?.at ? 'at' : 'every',
+      kind: s?.onceAt ? 'once' : s?.at ? 'at' : 'every',
       every: input({ type: 'number', min: 1, step: 1 }, s?.everyMinutes ? (s.everyMinutes % 60 === 0 ? s.everyMinutes / 60 : s.everyMinutes) : 1),
       unit: h('select', {}, new Option('hours', '60'), new Option('minutes', '1')),
       at: input({ type: 'time' }, s?.at || '08:00'),
+      once: input({ type: 'datetime-local' }, localStamp(s?.onceAt && s.onceAt > Date.now() ? s.onceAt : tomorrowAt8())),
       days: new Set(s?.days?.length ? s.days : DAYS.map(([d]) => d)),
       target: h('select', {}, new Option('Behind the scenes (a fresh run each time)', ''), ...chats.map((c) => new Option(`In the chat “${c.title}”`, c.id))),
       model: h('select', {}, new Option('Default model', ''), ...(state.meta?.models || []).map((m) => new Option(m.displayName || m.value, m.value))),
-      effort: h('select', {}, new Option('Default effort', ''), ...EFFORTS.map((e) => new Option(`${e} effort`, e)))
+      effort: h('select', {}, new Option('Default effort', ''), ...EFFORTS.map((e) => new Option(`${e} effort`, e))),
+      check: input({ type: 'text', class: 'hb-check-input', spellcheck: false, placeholder: 'C:\\Scripts\\new-mail.ps1' }, s?.checkScript)
     };
     f.prompt.value = s?.prompt || '';
     f.prompt.addEventListener('input', () => { formDirty = true; });
@@ -313,14 +317,19 @@ export function init(ctx) {
       h('fieldset', {}, h('legend', {}, 'When'),
         h('div', { class: 'hb-when' }, radio('every', 'Repeat every'), f.every, f.unit),
         h('div', { class: 'hb-when' }, radio('at', 'At'), f.at, h('span', { class: 'muted' }, 'server time, on')),
-        f.kind === 'at' ? h('div', { class: 'hb-days' }, ...DAYS.map(dayBox)) : null),
+        f.kind === 'at' ? h('div', { class: 'hb-days' }, ...DAYS.map(dayBox)) : null,
+        h('div', { class: 'hb-when' }, radio('once', 'Once, on'), f.once, h('span', { class: 'muted' }, 'server time'))),
       h('label', {}, 'Runs', f.target),
       h('div', { class: 'hb-pair' }, h('label', {}, 'Model', f.model), h('label', {}, 'Effort', f.effort)),
+      h('label', {}, 'Check script (optional)', f.check),
+      h('p', { class: 'muted hb-hint' }, 'The full path of a script to run first, without Nova. If it prints nothing, the run is skipped and uses ' +
+        'no tokens; whatever it prints is passed to Nova with the prompt.'),
       h('div', { class: 'row' }, h('span', { class: 'spacer' }),
         h('button', { type: 'button', class: 'text-btn', onclick: cancelForm }, 'Cancel'),
         h('button', { type: 'submit', class: 'send-btn' }, s ? 'Save' : 'Add schedule')));
     f.every.disabled = f.unit.disabled = f.kind !== 'every';
     f.at.disabled = f.kind !== 'at';
+    f.once.disabled = f.kind !== 'once';
     doc.replaceChildren(h('article', { class: 'brain-article hb-detail' }, formEl));
   }
 
@@ -336,8 +345,10 @@ export function init(ctx) {
     const f = form;
     const body = {
       name: f.name.value, prompt: f.prompt.value, targetChatId: f.target.value || null, model: f.model.value || null, effort: f.effort.value || null,
-      ...(f.kind === 'every' ? { everyMinutes: Math.round(Number(f.every.value) * Number(f.unit.value)), at: null }
-        : { at: f.at.value, days: DAYS.map(([d]) => d).filter((d) => f.days.has(d)), everyMinutes: null })
+      checkScript: f.check.value.trim() || null,
+      ...(f.kind === 'every' ? { everyMinutes: Math.round(Number(f.every.value) * Number(f.unit.value)), at: null, onceAt: null }
+        : f.kind === 'once' ? { onceAt: f.once.value, everyMinutes: null, at: null }
+          : { at: f.at.value, days: DAYS.map(([d]) => d).filter((d) => f.days.has(d)), everyMinutes: null, onceAt: null })
     };
     if (f.kind === 'at' && !body.days.length) { setStatus('Choose at least one day.', true); return; }
     try {

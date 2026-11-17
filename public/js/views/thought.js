@@ -10,7 +10,7 @@ import { api } from '../lib/api.js';
 import { startChat, goToChat, goTo } from '../shell/views.js';
 import { state } from '../state.js';
 
-const FILTERS = [['all', 'Everything'], ['open', 'Waiting for you'], ['questions', 'Questions'], ['held', 'Held back']];
+const FILTERS = [['all', 'Everything'], ['open', 'Waiting for you'], ['questions', 'Questions']];
 const SOURCE = {
   heartbeat: ['Heartbeat', ['M3 12h4l2-6 4 12 2-6h6']],
   chat: ['Chat', ['M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 20 12Z']],
@@ -83,7 +83,7 @@ export function init(ctx) {
     if (!entries.length) {
       doc.replaceChildren(h('div', { class: 'empty' }, h('h2', {}, filter === 'all' ? 'Nothing yet' : 'Nothing here'),
         h('p', {}, filter === 'all' ? 'Nova adds a line here when it finishes a task you confirm, commits a project, or runs a Heartbeat schedule.'
-          : filter === 'open' ? 'No questions or held-back actions are waiting for you.' : 'Nothing matches this filter.')));
+          : filter === 'open' ? 'No questions are waiting for you.' : 'Nothing matches this filter.')));
       return;
     }
     const kids = [];

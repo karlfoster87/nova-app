@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.13.0 · Node 22.15+ · five dependencies · no build step
+Version 0.13.1 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -40,13 +40,13 @@ The Soul sets Nova's character, style, tone and friendliness for every chat, in 
 
 ### Heartbeat: work Nova does by itself
 
-Ask Nova to check on something regularly ("every hour, look at what happened in Home Assistant and tell me if there's anything worth automating") and it sets up a schedule; or add one yourself in the Heartbeat pane of the Core tab. A schedule repeats every so many minutes or hours, or runs at a time of day on the weekdays you pick (in the server's time). Each run happens behind the scenes in a fresh session, so it doesn't fill your chats, and can read what earlier runs noted. Or a schedule can send its prompt into a chat of your choice instead.
+Ask Nova to check on something regularly ("every hour, look at what happened in Home Assistant and tell me if there's anything worth automating") and it sets up a schedule; or add one yourself in the Heartbeat pane of the Core tab. A schedule repeats every so many minutes or hours, runs at a time of day on the weekdays you pick, or runs just once at a date and time (all in the server's time). Nova uses a one-off when it needs to come back to something itself, such as "check at 2am whether the backup finished", rather than any hidden scheduler. Each run happens behind the scenes in a fresh session, so it doesn't fill your chats. Or a schedule can send its prompt into a chat of your choice instead, which is how Nova comes back to the conversation it scheduled from.
 
-Runs behind the scenes are non-destructive: Nova may read, search, look things up, add tasks and create new files, but anything that would delete, overwrite, change an existing file, send something or run a command that changes things is held back and listed in Thought for you to review. Nova can't ask you anything mid-run; it records the question instead. The Heartbeat pane lists every schedule with its next run, its prompt and its recent runs, and lets you run, stop, pause, edit or delete it, and read any run's transcript, without asking Nova. Profiles with edit access to Core manage their own schedules; runs pause while you're signed out of Claude or plan usage is high.
+Runs behind the scenes are unattended and have full permission, as if every tool were always allowed, so **the schedule's prompt sets the limits**: say what Nova should do and what it mustn't touch. To keep frequent checks cheap, a schedule can name a **check script** (`.ps1`, `.sh`, `.py`, `.js`, `.bat` or `.cmd`) that runs first, without a model: a PowerShell script that lists new mail through Outlook's COM objects, say, or the last hour's Home Assistant events, filtered. If it prints nothing, the run is skipped and uses no tokens; whatever it prints is passed to Nova with the prompt. A check script that fails is noted in Thought. (Windows PowerShell reads a script saved without a byte-order mark as ANSI, so save scripts with accented text as UTF-8 with BOM.) Nova can't ask you anything mid-run; it records a question only when it can't go on without you. The Heartbeat pane lists every schedule with its next run, its prompt and its recent runs, and lets you run, stop, pause, edit or delete it, and read any run's transcript, without asking Nova. Profiles with edit access to Core manage their own schedules; runs pause while you're signed out of Claude or plan usage is high.
 
 ### Thought: Nova's train of thought
 
-A shared timeline of what Nova has done, when and why, a line or two at a time: Heartbeat runs, tasks you confirm as finished, and project commits. When Nova wants your view on something, the question waits here (and on the Core tab's badge, with a push notification) until you discuss it with Nova, which opens a new chat with the question ready, mark it answered or dismiss it. Everyone with access to Core sees the timeline; an entry's details and links show only for the profile it came from, and only that profile or an admin can review what its runs held back. Nova can read the timeline too, so it remembers what it did and what it asked.
+A shared timeline of what Nova has done, one short line each: the outcome of Heartbeat runs, tasks you confirm as finished, and project commits. Nova asks a question only when it can't go on without your decision; it waits here (and on the Core tab's badge, with a push notification) until you discuss it with Nova, which opens a new chat with the question ready, mark it answered or dismiss it. Everyone with access to Core sees the timeline; an entry's details and links show only for the profile it came from. Nova can read the timeline too, so it remembers what it did and what it asked.
 
 ### Talk to it
 

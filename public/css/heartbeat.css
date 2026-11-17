@@ -27,6 +27,7 @@
 .hb-facts dd { margin: 0; overflow-wrap: anywhere; }
 .hb-sub { margin: 22px 0 8px; font-size: 11.5px; font-weight: 700; color: var(--accent); letter-spacing: 0.16em; text-transform: uppercase; }
 .hb-prompt { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; border: 1px solid var(--line); border-left: 2px solid var(--accent); border-radius: var(--r-sm); background: var(--shade); line-height: 1.65; }
+.hb-check-input { font: 12.5px/1.6 var(--mono); }
 .hb-runs { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .hb-run { display: grid; grid-template-columns: 11em minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 7px 8px; border-radius: var(--r-sm); font-size: 12.5px; }
 .hb-run:hover { background: var(--accent-soft); }
@@ -51,6 +52,7 @@
 .hb-when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hb-when input[type=number] { width: 6em; }
 .hb-when input[type=time] { width: 8em; }
+.hb-when input[type=datetime-local] { width: auto; }
 .hb-when select { width: auto; }
 .hb-form .hb-radio { display: inline-flex; grid-auto-flow: column; align-items: center; gap: 8px; min-width: 8.5em; }
 .hb-radio input { accent-color: var(--accent); margin: 0; }

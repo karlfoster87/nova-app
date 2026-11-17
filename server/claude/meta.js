@@ -55,9 +55,19 @@ async function refreshUsage() {
       windows: u.rate_limits || {},
       subscription: u.subscription_type
     };
+    logWindows(u.rate_limits);
     broadcast();
     noteUsage(u.rate_limits);
   } catch { /* keep last snapshot */ }
+}
+
+// Which usage windows Claude reports, logged when the set changes, so it's clear from the log
+// whether a per-model allowance (model_scoped, such as a temporary one for one model) is offered.
+let windowNames = '';
+function logWindows(limits) {
+  const names = Object.entries(limits || {}).filter(([, w]) => w != null)
+    .map(([k, w]) => (Array.isArray(w) ? `${k}[${w.map((x) => x?.display_name).join(', ') || 'none'}]` : k)).join(', ') || 'none';
+  if (names !== windowNames) { windowNames = names; console.log(`Claude reports these usage windows: ${names}.`); }
 }
 
 // The fullest plan window, as a percentage: the 5-hour and weekly windows and any per-model ones.

@@ -218,8 +218,16 @@ export function init(ctx) {
           state.me?.role === 'admin' ? h('button', { type: 'button', class: 'text-btn', onclick: () => openSettings('claude') }, 'Sign in') : empty('Ask an admin to sign in.'));
       } else {
         const u = meta?.usage;
-        const bars = u?.available === false ? [] : WINDOWS.filter(([k]) => u?.windows?.[k]?.utilization != null).map(([k, label]) => {
-          const w = u.windows[k], pct = Math.max(0, Math.min(100, w.utilization));
+        // The fixed windows, then any per-model ones Claude reports (model_scoped, such as a
+        // temporary allowance for one model), which come and go by themselves. Home only: the
+        // header keeps to the fixed windows.
+        const shown = WINDOWS.filter(([k]) => u?.windows?.[k]?.utilization != null).map(([k, label]) => [label, u.windows[k]]);
+        const taken = new Set(shown.map(([label]) => label.split(' ')[0].toLowerCase()));
+        const scoped = (Array.isArray(u?.windows?.model_scoped) ? u.windows.model_scoped : [])
+          .filter((w) => w?.display_name && w.utilization != null && !taken.has(String(w.display_name).toLowerCase()))
+          .map((w) => [String(w.display_name), w]);
+        const bars = u?.available === false ? [] : [...shown, ...scoped].map(([label, w]) => {
+          const pct = Math.max(0, Math.min(100, w.utilization));
           const fill = h('div', { class: 'meter-fill' });
           fill.style.width = `${pct}%`;
           return h('div', { class: `home-meter${pct >= 90 || w.status === 'rejected' ? ' bad' : pct >= 75 || w.status === 'allowed_warning' ? ' warn' : ''}` },
@@ -250,7 +258,8 @@ export function init(ctx) {
     // straight away when the usage meters move.
     watch(m) {
       if (!shown) return;
-      if (m.t === 'meta') { if (data) render(); return; }
+      // Home hears each message before chats.js stores it, so the redraw waits until state.meta is the new one.
+      if (m.t === 'meta') { if (data) queueMicrotask(render); return; }
       if (WATCH.has(m.t) || (m.t === 'sdk' && m.msg?.type === 'result')) soon();
     },
     profileChanged() { if (shown) load(); }

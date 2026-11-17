@@ -112,6 +112,10 @@ addColumn('chats', 'handoff_cut', 'TEXT');     // JSON { session, at }: resume t
 // A behind-the-scenes Heartbeat run is a chat of its own, kept out of the chat list (heartbeat/runs.js).
 addColumn('chats', 'origin', 'TEXT');          // null = a chat the user started; 'heartbeat' = a scheduled run
 addColumn('chats', 'origin_id', 'TEXT');       // the schedule it ran for
+addColumn('heartbeats', 'once_at', 'INTEGER'); // a one-off schedule's time (epoch ms); null = it repeats
+addColumn('heartbeats', 'check_script', 'TEXT'); // full path of a script run first; nothing printed = nothing to do (heartbeat/check.js)
+// Runs no longer hold actions back (v0.13.1), so held entries still open from before need nothing more.
+db.exec("UPDATE thoughts SET status = 'reviewed' WHERE kind = 'held' AND status = 'open'");
 
 // Rows from before chats were tied to a brain belong to whichever brain is active the
 // first time this runs.
@@ -278,10 +282,11 @@ export const q = {
   allHeartbeats: db.prepare('SELECT * FROM heartbeats WHERE enabled = 1'),
   dueHeartbeats: db.prepare('SELECT * FROM heartbeats WHERE enabled = 1 AND next_run <= ? ORDER BY next_run LIMIT 20'),
   addHeartbeat: db.prepare(`INSERT INTO heartbeats (id, profile, name, prompt, every_min, at_time, days, target_chat, model, effort,
-    enabled, next_run, created_by, created_chat, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+    enabled, next_run, created_by, created_chat, created_at, updated_at, once_at, check_script) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   updateHeartbeat: db.prepare(`UPDATE heartbeats SET name = ?, prompt = ?, every_min = ?, at_time = ?, days = ?, target_chat = ?, model = ?,
-    effort = ?, enabled = ?, next_run = ?, updated_at = ? WHERE id = ? AND profile = ?`),
+    effort = ?, enabled = ?, next_run = ?, once_at = ?, check_script = ?, updated_at = ? WHERE id = ? AND profile = ?`),
   setHeartbeatNext: db.prepare('UPDATE heartbeats SET next_run = ? WHERE id = ?'),
+  endOnce: db.prepare('UPDATE heartbeats SET enabled = 0, next_run = NULL WHERE id = ?'), // a one-off schedule, once it has started
   heartbeatRan: db.prepare('UPDATE heartbeats SET last_run = ?, last_status = ?, last_chat = COALESCE(?, last_chat), runs = runs + ? WHERE id = ?'),
   deleteHeartbeat: db.prepare('DELETE FROM heartbeats WHERE id = ? AND profile = ?'),
   untargetChat: db.prepare('UPDATE heartbeats SET target_chat = NULL, enabled = 0 WHERE target_chat = ? AND profile = ?'),

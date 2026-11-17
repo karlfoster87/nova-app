@@ -4,13 +4,16 @@
 // once across every profile, and a run is skipped (not queued) while Nova is signed out, the plan
 // is nearly used up, or the same schedule's previous run is still going.
 //
+// A schedule with a check script runs it first (check.js): if it prints nothing there is nothing
+// to do, and no model starts; what it prints goes to Nova with the prompt.
+//
 // A behind-the-scenes run is a fresh hidden chat (origin 'heartbeat', kept out of the chat list)
-// whose runner is unattended: no prompts, and the non-destructive rules in policy.js decide every
-// tool call. Nova ends it by recording what it did, and any question for the user, with
-// record_thought; if it doesn't, the run writes a short entry itself. Actions it held back become
-// one entry for the profile to review. A question or held action pushes an alert that opens the
-// Train of Thought. A schedule with a target chat instead sends its prompt there as a message, like
-// the user typing it, so that chat's usual approvals apply.
+// whose runner is unattended: no prompts, and every tool call allowed (since 2026-11-17 the
+// schedule's prompt is what limits a run). Nova ends it by recording the outcome, and a question
+// only when it can't go on without the user, with record_thought; if it doesn't, the run writes a
+// short entry itself. A question pushes an alert that opens the Train of Thought. A schedule with
+// a target chat instead sends its prompt there as a message, like the user typing it, so that
+// chat's usual approvals apply. A one-off schedule switches itself off once it has started.
 import crypto from 'node:crypto';
 import { deleteSession } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../core/config.js';
@@ -23,6 +26,7 @@ import { ownedChat, sendMessage } from '../chat/chats.js';
 import { recordThought, pruneThoughts } from '../thought/thoughts.js';
 import { pushNotice } from '../push/notify.js';
 import { nextRun, getSchedule, heartbeatChanged, resetSchedules } from './schedules.js';
+import { runCheck } from './check.js';
 
 const running = new Map(); // schedule id -> { chatId, startedAt, runner, stop }
 export const isRunning = (id) => running.has(id);
@@ -51,7 +55,8 @@ async function tick() {
     for (const row of q.dueHeartbeats.all(now)) {
       // A due run waits for a free place rather than being skipped; it stays due until then.
       if (running.size >= max && !running.has(row.id)) break;
-      q.setHeartbeatNext.run(nextRun(row, now), row.id);
+      if (row.once_at) q.endOnce.run(row.id);
+      else q.setHeartbeatNext.run(nextRun(row, now), row.id);
       const skip = skipReason(row);
       if (skip) { q.heartbeatRan.run(now, skip, null, 0, row.id); heartbeatChanged(row.profile); continue; }
       start(row).catch((err) => console.error(`The schedule "${row.name}" failed to run:`, err));
@@ -61,19 +66,43 @@ async function tick() {
   } finally { ticking = false; }
 }
 
-const start = (row) => (row.target_chat ? runInChat(row) : runBehind(row));
+// Runs the check script, if there is one, then the schedule. found: what the script printed.
+async function start(row) {
+  let found = null;
+  if (row.check_script) {
+    running.set(row.id, { chatId: null, startedAt: Date.now(), stop: null });
+    heartbeatChanged(row.profile);
+    let check;
+    try { check = await runCheck(row.check_script); } finally { running.delete(row.id); }
+    if (check.error) {
+      const status = `Failed: ${check.error}.`;
+      recordThought(row.profile, { source: 'heartbeat', sourceId: row.id, summary: `A scheduled run didn't start: ${check.error}.` });
+      q.heartbeatRan.run(Date.now(), status, null, 0, row.id);
+      heartbeatChanged(row.profile);
+      console.log(`Heartbeat: "${row.name}" for ${row.profile}: ${status}`);
+      return;
+    }
+    if (!check.output) {
+      q.heartbeatRan.run(Date.now(), 'Nothing to do: the check script found nothing.', null, 0, row.id);
+      heartbeatChanged(row.profile);
+      return;
+    }
+    found = check.output;
+  }
+  return row.target_chat ? runInChat(row, found) : runBehind(row, found);
+}
 
 // ---- Behind the scenes -----------------------------------------------------------------
 
 // The run's first message. The fixed instructions for unattended runs are in the runner's system
 // prompt (runner.js runNote); this says which schedule it is and what it asks for.
-const runPrompt = (row) => `<heartbeat-run schedule="${row.name.replace(/"/g, '\'')}" id="${row.id}" at="${new Date().toISOString()}">\n` +
-  `${row.prompt}\n</heartbeat-run>`;
+const runPrompt = (row, found) => `<heartbeat-run schedule="${row.name.replace(/"/g, '\'')}" id="${row.id}" at="${new Date().toISOString()}">\n` +
+  `${row.prompt}\n</heartbeat-run>` + (found ? `\n<check-output>\n${found}\n</check-output>` : '');
 
-async function runBehind(row) {
+async function runBehind(row, found) {
   const chatId = crypto.randomUUID(), startedAt = Date.now();
   q.addRunChat.run(chatId, row.profile, `${row.name} · ${stamp(startedAt)}`, row.model, row.effort, startedAt, startedAt, row.id);
-  const bg = { scheduleId: row.id, name: row.name, created: new Set(), held: [], recorded: 0, questions: [] };
+  const bg = { scheduleId: row.id, name: row.name, recorded: 0, questions: [] };
   const entry = { chatId, startedAt, stop: null };
   running.set(row.id, entry);
   heartbeatChanged(row.profile);
@@ -89,7 +118,7 @@ async function runBehind(row) {
       entry.stop = () => resolve({ stopped: true });
       timer = setTimeout(() => resolve({ timeout: true }), minutes * 60 * 1000);
       runner.done.then(() => resolve({ closed: true }));
-      runner.send(runPrompt(row), crypto.randomUUID());
+      runner.send(runPrompt(row, found), crypto.randomUUID());
     });
     if (outcome.msg) {
       result = outcome.msg.result || null;
@@ -110,40 +139,29 @@ async function runBehind(row) {
   try { finishRun(row, chatId, bg, status, result); } catch (err) { console.error(`Heartbeat: couldn't record "${row.name}":`, err); }
 }
 
-// What a finished run leaves behind: its Thought entries, the schedule's last run, and an alert
-// when it raised something for the user.
+// What a finished run leaves behind: its Thought entry, the schedule's last run, and an alert
+// when it has a question for the user.
 function finishRun(row, chatId, bg, status, result) {
-  const base = { source: 'heartbeat', sourceId: row.id, chatId };
   if (!bg.recorded) {
-    recordThought(row.profile, { ...base, summary: status === 'Finished' ? 'A scheduled run finished without noting anything.' : `A scheduled run stopped early. ${status}`,
-      detail: result });
-  }
-  if (bg.held.length) {
-    const n = bg.held.length;
-    recordThought(row.profile, { ...base, kind: 'held', summary: `A scheduled run held back ${n === 1 ? 'an action' : `${n} actions`} for review.`,
-      detail: bg.held.map((h) => `- ${h}`).join('\n') });
+    recordThought(row.profile, { source: 'heartbeat', sourceId: row.id, chatId,
+      summary: status === 'Finished' ? 'A scheduled run finished.' : `A scheduled run stopped early. ${status}`, detail: result });
   }
   q.heartbeatRan.run(Date.now(), status, chatId, 1, row.id);
   heartbeatChanged(row.profile);
   console.log(`Heartbeat: "${row.name}" for ${row.profile}: ${status}`);
-  if (bg.questions.length) {
-    pushNotice(row.profile, { title: `${row.name}: Nova has a question`, body: bg.questions[0], route: 'thought' });
-  } else if (bg.held.length) {
-    pushNotice(row.profile, { title: `${row.name}: held back for review`, route: 'thought',
-      body: `Nova held back ${bg.held.length === 1 ? 'an action' : `${bg.held.length} actions`} it needs you to look at.` });
-  }
+  if (bg.questions.length) pushNotice(row.profile, { title: `${row.name}: Nova has a question`, body: bg.questions[0], route: 'thought' });
 }
 
 // ---- In a chat -----------------------------------------------------------------------
 
-async function runInChat(row) {
+async function runInChat(row, found) {
   const chat = ownedChat(row.profile, row.target_chat);
   let status = 'Sent to its chat.';
   if (!chat) status = 'Skipped: its chat was deleted.';
   else if (existingRunner(row.profile, chat.id)?.busy) status = 'Skipped: Nova was busy in that chat.';
   else {
     try {
-      await sendMessage(row.profile, chat, { text: `Heartbeat "${row.name}": ${row.prompt}`, attachments: [], model: row.model || chat.model || undefined,
+      await sendMessage(row.profile, chat, { text: `Heartbeat "${row.name}": ${row.prompt}${found ? `\n\nThe check script found:\n\`\`\`\n${found}\n\`\`\`` : ''}`, attachments: [], model: row.model || chat.model || undefined,
         effort: row.effort || chat.effort || undefined, clientId: null });
     } catch (err) {
       status = `Failed: ${err.message}`;

@@ -1,9 +1,10 @@
 // Heartbeat schedules: work Nova does without being asked, on a timetable. Each profile has its
 // own, made in the Heartbeat pane or by Nova in a chat (its add_heartbeat tool, chat/tools.js),
 // and every one can be paused, changed or deleted from the pane without asking Nova. A schedule
-// either repeats every so many minutes or runs at a time of day, on chosen weekdays, in the
-// server's time zone. It runs behind the scenes (a fresh hidden chat each time) or in a chat the
-// profile names. Running them is runs.js; this file only stores them and works out when they are due.
+// repeats every so many minutes, runs at a time of day on chosen weekdays, or runs once at a
+// date and time, all in the server's time zone. It runs behind the scenes (a fresh hidden chat
+// each time) or in a chat the profile names, and may name a check script that runs first
+// (check.js). Running them is runs.js; this file only stores them and works out when they are due.
 // Seeing them needs read access to the Core tab ('brain'), making or changing them edit access.
 import crypto from 'node:crypto';
 import { config } from '../core/config.js';
@@ -14,6 +15,7 @@ import { requireView } from '../accounts/access.js';
 import { ownedChat } from '../chat/chats.js';
 import { EFFORTS } from '../chat/runner.js';
 import { isRunning } from './runs.js';
+import { checkScriptPath } from './check.js';
 
 const MAX_PER_PROFILE = 50;
 const WEEK = 7 * 24 * 60;
@@ -27,6 +29,7 @@ const daysOf = (row) => (row.days ? row.days.split(',').map(Number) : []);
 // The next time a schedule is due after from (epoch ms). An interval counts from from; a time of
 // day is the next such time, in the server's local time, on one of its weekdays.
 export function nextRun(row, from = Date.now()) {
+  if (row.once_at) return row.once_at; // a one-off that was missed runs as soon as it can
   if (row.every_min) return from + row.every_min * 60 * 1000;
   const [hh, mm] = String(row.at_time || '00:00').split(':').map(Number);
   const days = daysOf(row);
@@ -40,6 +43,9 @@ export function nextRun(row, from = Date.now()) {
 
 // "Every hour", "Every 30 minutes", "Weekdays at 08:00", "Mon, Thu at 18:30".
 export function cadenceText(row) {
+  if (row.once_at) {
+    return `Once, ${new Date(row.once_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
+  }
   if (row.every_min) {
     const m = row.every_min;
     if (m % 1440 === 0) return m === 1440 ? 'Every day' : `Every ${m / 1440} days`;
@@ -56,23 +62,32 @@ export function cadenceText(row) {
 
 const clip = (s, max) => String(s ?? '').replace(/\r\n?/g, '\n').trim().slice(0, max);
 
-// A cadence from the pane or Nova's tool: { everyMinutes } or { at: 'HH:MM', days: ['mon', …] }.
-// Days may also be numbers, 0 for Sunday; none means every day.
-function checkCadence({ everyMinutes, at, days }) {
-  const hasEvery = everyMinutes != null && everyMinutes !== '';
-  const hasAt = at != null && at !== '';
-  if (hasEvery === hasAt) throw new UserError('Choose either how often it repeats, or a time of day.');
+// A cadence from the pane or Nova's tool: { everyMinutes }, { at: 'HH:MM', days: ['mon', …] } or
+// { onceAt: 'YYYY-MM-DD HH:MM' } (server time; an ISO time with a zone works too). Days may also
+// be numbers, 0 for Sunday; none means every day.
+function checkCadence({ everyMinutes, at, days, onceAt }) {
+  const given = (v) => v != null && v !== '';
+  const hasEvery = given(everyMinutes), hasAt = given(at), hasOnce = given(onceAt);
+  if (hasEvery + hasAt + hasOnce !== 1) throw new UserError('Choose how often it repeats, a time of day, or a single date and time.');
+  if (hasOnce) {
+    const m = /^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d)$/.exec(String(onceAt).trim());
+    const when = typeof onceAt === 'number' ? onceAt : m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]).getTime() : Date.parse(String(onceAt));
+    if (!Number.isFinite(when)) throw new UserError('Give the date and time as YYYY-MM-DD HH:MM, like 2026-11-18 02:00.');
+    if (when <= Date.now()) throw new UserError('That time has already passed. Choose a time in the future.');
+    if (when > Date.now() + 366 * 24 * 60 * 60 * 1000) throw new UserError('A one-off run can be up to a year ahead.');
+    return { every_min: null, at_time: null, days: null, once_at: when };
+  }
   if (hasEvery) {
     const m = Number(everyMinutes), min = Math.max(1, Number(config.heartbeat.minMinutes) || 5);
     if (!Number.isInteger(m) || m < min || m > WEEK) throw new UserError(`It can repeat every ${min} minutes at most, and at least once a week.`);
-    return { every_min: m, at_time: null, days: null };
+    return { every_min: m, at_time: null, days: null, once_at: null };
   }
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(at))) throw new UserError('Give the time of day as HH:MM, like 08:30.');
   const list = Array.isArray(days) ? days : days == null || days === '' ? [] : null;
   if (!list) throw new UserError('Give the days as a list, like ["mon", "wed"].');
   const nums = [...new Set(list.map((d) => (typeof d === 'number' ? d : DAYS.indexOf(String(d).toLowerCase().slice(0, 3)))))];
   if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 6)) throw new UserError('Days are mon, tue, wed, thu, fri, sat and sun.');
-  return { every_min: null, at_time: String(at), days: nums.length && nums.length < 7 ? nums.sort().join(',') : null };
+  return { every_min: null, at_time: String(at), days: nums.length && nums.length < 7 ? nums.sort().join(',') : null, once_at: null };
 }
 
 // The chat a schedule sends to: one of this profile's own chats (not another run).
@@ -112,7 +127,7 @@ export function shapeSchedule(row) {
   return {
     id: row.id, name: row.name, prompt: row.prompt, cadence: cadenceText(row),
     everyMinutes: row.every_min, at: row.at_time, days: daysOf(row).map((d) => DAYS[d]),
-    targetChat: chatRef(row.profile, row.target_chat), model: row.model, effort: row.effort,
+    targetChat: chatRef(row.profile, row.target_chat), model: row.model, effort: row.effort, onceAt: row.once_at, checkScript: row.check_script,
     enabled: !!row.enabled, nextRun: row.enabled ? row.next_run : null, running: isRunning(row.id),
     lastRun: row.last_run, lastStatus: row.last_status, lastChat: row.last_chat, runs: row.runs,
     createdBy: row.created_by, createdChat: chatRef(row.profile, row.created_chat), createdAt: row.created_at, updatedAt: row.updated_at
@@ -143,19 +158,20 @@ export function createSchedule(profile, body = {}, { by = 'you', chatId = null }
   const cadence = checkCadence(body);
   const target = checkTarget(profile, body.targetChatId);
   const model = checkModel(body.model), effort = checkEffort(body.effort);
+  const check = checkScriptPath(body.checkScript);
   if (q.heartbeats.all(profile).length >= MAX_PER_PROFILE) throw new UserError(`A profile can have up to ${MAX_PER_PROFILE} schedules. Delete one first.`);
   const id = crypto.randomUUID(), now = Date.now();
   const enabled = body.enabled === false ? 0 : 1;
   const row = { ...cadence };
   q.addHeartbeat.run(id, profile, name, prompt, cadence.every_min, cadence.at_time, cadence.days, target, model, effort,
-    enabled, enabled ? nextRun(row, now) : null, by === 'nova' ? 'nova' : 'you', chatId, now, now);
+    enabled, enabled ? nextRun(row, now) : null, by === 'nova' ? 'nova' : 'you', chatId, now, now, cadence.once_at, check);
   console.log(`${profile} ${by === 'nova' ? 'had Nova schedule' : 'scheduled'} "${name}" (${cadenceText(row)}).`);
   heartbeatChanged(profile);
   return shapeSchedule(q.heartbeat.get(id));
 }
 
 // patch: any of name, prompt, the cadence (everyMinutes, or at with days), targetChatId (null to
-// run behind the scenes), model, effort, enabled. A new cadence, or turning it back on, counts
+// run behind the scenes), model, effort, checkScript (null to remove), enabled. A new cadence, or turning it back on, counts
 // the next run from now.
 export function updateSchedule(profile, id, patch = {}) {
   requireView(profile, 'brain', 'edit');
@@ -164,18 +180,22 @@ export function updateSchedule(profile, id, patch = {}) {
   const prompt = 'prompt' in patch ? clip(patch.prompt, 4000) : row.prompt;
   if (!name) throw new UserError('Give the schedule a name.');
   if (!prompt) throw new UserError('Say what Nova should do each time it runs.');
-  const newCadence = 'everyMinutes' in patch || 'at' in patch || 'days' in patch;
+  // Naming one kind of timing replaces the others; days alone keep the rest as it was.
+  const timing = ['everyMinutes', 'at', 'onceAt'].some((k) => k in patch);
+  const newCadence = timing || 'days' in patch;
+  const pick = (key, current) => (key in patch ? patch[key] : timing ? null : current);
   const cadence = newCadence ? checkCadence({
-    everyMinutes: 'everyMinutes' in patch ? patch.everyMinutes : 'at' in patch ? null : row.every_min,
-    at: 'at' in patch ? patch.at : 'everyMinutes' in patch ? null : row.at_time,
+    everyMinutes: pick('everyMinutes', row.every_min), at: pick('at', row.at_time), onceAt: pick('onceAt', row.once_at),
     days: 'days' in patch ? patch.days : daysOf(row)
-  }) : { every_min: row.every_min, at_time: row.at_time, days: row.days };
+  }) : { every_min: row.every_min, at_time: row.at_time, days: row.days, once_at: row.once_at };
   const target = 'targetChatId' in patch ? checkTarget(profile, patch.targetChatId) : row.target_chat;
   const model = 'model' in patch ? checkModel(patch.model) : row.model;
   const effort = 'effort' in patch ? checkEffort(patch.effort) : row.effort;
+  const check = 'checkScript' in patch ? checkScriptPath(patch.checkScript) : row.check_script;
   const enabled = 'enabled' in patch ? (patch.enabled ? 1 : 0) : row.enabled;
+  if (enabled && cadence.once_at && cadence.once_at <= Date.now()) throw new UserError('Its time has passed. Choose a new date and time to run it again.');
   const next = !enabled ? null : newCadence || !row.enabled || row.next_run == null ? nextRun(cadence) : row.next_run;
-  q.updateHeartbeat.run(name, prompt, cadence.every_min, cadence.at_time, cadence.days, target, model, effort, enabled, next, Date.now(), row.id, profile);
+  q.updateHeartbeat.run(name, prompt, cadence.every_min, cadence.at_time, cadence.days, target, model, effort, enabled, next, cadence.once_at, check, Date.now(), row.id, profile);
   if (enabled !== row.enabled) console.log(`${profile} ${enabled ? 'resumed' : 'paused'} the schedule "${name}".`);
   heartbeatChanged(profile);
   return shapeSchedule(q.heartbeat.get(row.id));

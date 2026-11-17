@@ -1462,37 +1462,40 @@ async function heartbeatChecks() {
   q.addProfile.run('smoke-hb-view', hashSecret(PASSWORD), Date.now(), 'user', null);
   q.setAccess.run(JSON.stringify({ brain: 'edit' }), 'smoke-hb'); // smoke-hb-view keeps the default, read
   try {
-    const { decide, bashProblem } = await import('../server/heartbeat/policy.js');
     const work = fs.mkdtempSync(path.join(tmp, 'hb-'));
-    fs.writeFileSync(path.join(work, 'existing.md'), 'old\n');
-    const run = { created: new Set(), cwd: work };
-    const ok = (tool, input = {}) => decide(tool, input, run).allow;
-    t(ok('Read', { file_path: 'existing.md' }) && ok('Grep', { pattern: 'x' }) && ok('WebFetch', { url: 'https://example.com' }) && ok('Task', {}),
-      'an unattended run may read, search, look things up and start sub-agents');
-    t(!ok('AskUserQuestion', { questions: [] }) && /record_thought/.test(decide('AskUserQuestion', {}, run).reason), 'an unattended run can\'t ask questions, and is told to record them instead');
-    t(ok('Write', { file_path: 'new.md' }) && ok('Edit', { file_path: 'new.md' }) && ok('Write', { file_path: path.join(work, 'new.md') }),
-      'an unattended run may create a file and keep working on it');
-    t(!ok('Write', { file_path: 'existing.md' }) && !ok('Edit', { file_path: 'existing.md' }) && !ok('MultiEdit', { file_path: 'existing.md' }),
-      'an unattended run can\'t overwrite or edit a file it didn\'t create');
-    const safe = ['ls -la', 'git status && git log --oneline -5', 'grep -ri heating notes | head -20', 'curl -s https://ha.local/api/states', 'find . -name "*.md"',
-      'cat a.md 2>/dev/null', 'git -C brain diff HEAD~1', 'curl -X GET https://x', 'sed -n 1,20p a.md'];
-    const risky = ['rm notes/a.md', 'mv a b', 'git push', 'git reset --hard', 'echo hi > a.md', 'find . -delete', 'sed -i s/a/b/ a.md', 'cat $(which x)',
-      'curl -d x=1 https://x', 'curl -XPOST https://x', 'curl -o out https://x', 'node -e 1', 'X=1 ls', 'ls &', 'git branch -D main', 'git -c alias.x=!rm x', 'git commit -m x', 'npm install'];
-    const wrongSafe = safe.filter((c) => bashProblem(c)), wrongRisky = risky.filter((c) => !bashProblem(c));
-    t(!wrongSafe.length, `read-only commands are allowed${wrongSafe.length ? ` (refused: ${wrongSafe.join(' ; ')})` : ''}`);
-    t(!wrongRisky.length, `commands that change things are held back${wrongRisky.length ? ` (allowed: ${wrongRisky.join(' ; ')})` : ''}`);
-    t(ok('mcp__nova__add_task') && ok('mcp__nova__record_thought') && !ok('mcp__nova__delete_task') && !ok('mcp__nova__delete_note') && !ok('mcp__nova__add_heartbeat'),
-      'an unattended run may add tasks and record thoughts, but not delete tasks or notes or change schedules');
-    t(ok('mcp__homeassistant__get_states') && !ok('mcp__claude_ai_Microsoft_365__outlook_send_mail') && !ok('mcp__x__deleteEvent') && !ok('CronCreate') && !ok('PowerShell', { command: 'ls' }),
-      'other tools are judged by what their names say, and unknown ones are held back');
-    t(decide('Bash', { command: 'rm a' }, run).what === 'Run: rm a', 'a held action says what Nova wanted to do');
+    const { ChatRunner } = await import('../server/chat/runner.js');
+    const unattended = Object.assign(Object.create(ChatRunner.prototype), { background: { name: 'x', recorded: 0, questions: [] } });
+    const allowed = async (tool, input = {}) => (await unattended.decideUnattended(tool, input, {})).behavior === 'allow';
+    t((await allowed('Bash', { command: 'rm -rf notes' })) && (await allowed('PowerShell', { command: '$mail.Send()' })) && (await allowed('Write', { file_path: 'x' })) &&
+      (await allowed('mcp__nova__delete_task')), 'an unattended run may use any tool without asking: its prompt sets the limits');
+    const asked = await unattended.decideUnattended('AskUserQuestion', { questions: [] }, {});
+    t(asked.behavior === 'deny' && /record_thought/.test(asked.message), 'an unattended run can\'t ask questions, and is told to record one only if it must');
+
+    // Check scripts: what they print is the run's input; nothing printed means nothing to do.
+    const { runCheck, checkScriptPath } = await import('../server/heartbeat/check.js');
+    const found = path.join(work, 'found.js'), quiet = path.join(work, 'quiet.js'), broken = path.join(work, 'broken.js');
+    fs.writeFileSync(found, 'console.log("2 new emails");\n');
+    fs.writeFileSync(quiet, '\n');
+    fs.writeFileSync(broken, 'console.error("no access"); process.exit(3);\n');
+    const [r1, r2, r3] = await Promise.all([runCheck(found), runCheck(quiet), runCheck(broken)]);
+    t(r1.output === '2 new emails' && r2.output === '' && /exit code 3/.test(r3.error) && /no access/.test(r3.error),
+      `a check script's output is passed on, nothing printed means nothing to do, and a failure says why${r3.error ? '' : ` (${JSON.stringify([r1, r2, r3])})`}`);
+    if (process.platform === 'win32') {
+      const ps = path.join(work, 'mail.ps1');
+      fs.writeFileSync(ps, '﻿Write-Output "Café: 1 new"\n'); // Windows PowerShell reads a script without a BOM as ANSI
+      const r4 = await runCheck(ps);
+      t(r4.output === 'Café: 1 new', `a PowerShell check script runs, and its output keeps accents${r4.output === 'Café: 1 new' ? '' : ` (${JSON.stringify(r4)})`}`);
+    }
+    let pathErr = null;
+    try { checkScriptPath(path.join(work, 'missing.ps1')); } catch (err) { pathErr = err; }
+    t(pathErr?.status === 400 && checkScriptPath(found) === path.resolve(found) && checkScriptPath('') === null, 'a check script must be an existing script file');
 
     const { sessionBase, startBackground } = await import('../server/chat/runner.js');
     t(['CronCreate', 'ScheduleWakeup', 'RemoteTrigger'].every((n) => sessionBase('smoke-hb').disallowedTools.includes(n)),
       'Claude Code\'s own scheduling tools are kept out of chats, so schedules go through Heartbeat');
     // A run with the default model and effort sends its prompt (this smoke's Claude folder has no
     // sign-in, so nothing is used up). It once failed here, writing an undefined model to the chat.
-    const bgRun = startBackground({ id: crypto.randomUUID(), profile: 'smoke-hb', background: { name: 'x', created: new Set(), held: [], recorded: 0, questions: [] } });
+    const bgRun = startBackground({ id: crypto.randomUUID(), profile: 'smoke-hb', background: { name: 'x', recorded: 0, questions: [] } });
     let sendErr = null;
     try { bgRun.send('Smoke: do nothing.', crypto.randomUUID()); } catch (err) { sendErr = err; }
     bgRun.close();
@@ -1525,6 +1528,31 @@ async function heartbeatChecks() {
     const paused = s.updateSchedule('smoke-hb', made.id, { enabled: false });
     const resumed = s.updateSchedule('smoke-hb', made.id, { enabled: true });
     t(!paused.enabled && paused.nextRun === null && resumed.enabled && resumed.nextRun > Date.now(), 'pausing a schedule stops it, and resuming counts from now');
+    const notScript = path.join(tmp, 'smoke-notes.md');
+    fs.writeFileSync(notScript, 'x\n');
+    t(mk({ name: 'x', prompt: 'y', everyMinutes: 60, checkScript: path.join(tmp, 'no-such.ps1') }).error?.status === 400 &&
+      mk({ name: 'x', prompt: 'y', everyMinutes: 60, checkScript: notScript }).error?.status === 400, 'a schedule\'s check script must be an existing script file');
+    const scriptFile = path.join(tmp, 'smoke-check.ps1');
+    fs.writeFileSync(scriptFile, 'Get-Date\n');
+    const withCheck = s.updateSchedule('smoke-hb', made.id, { checkScript: scriptFile });
+    t(withCheck.checkScript === path.resolve(scriptFile) && s.updateSchedule('smoke-hb', made.id, { checkScript: null }).checkScript === null,
+      'a schedule stores its check script as a full path, and can drop it');
+
+    // One-off schedules: a date and time in the future, which switch themselves off once started.
+    t(mk({ name: 'x', prompt: 'y', onceAt: '2020-01-01 02:00' }).error?.status === 400 && mk({ name: 'x', prompt: 'y', onceAt: 'tonight' }).error?.status === 400 &&
+      mk({ name: 'x', prompt: 'y', onceAt: '2099-01-01 02:00', everyMinutes: 60 }).error?.status === 400, 'a one-off run needs one valid time in the future');
+    const tomorrow = new Date(Date.now() + 24 * 3600000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const onceText = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())} 02:00`;
+    const once = s.updateSchedule('smoke-hb', made.id, { onceAt: onceText });
+    const due = new Date(once.nextRun);
+    t(once.onceAt === once.nextRun && due.getHours() === 2 && due.getDate() === tomorrow.getDate() && once.everyMinutes === null && /^Once, /.test(once.cadence),
+      'a schedule can run once, at a date and time in the server\'s time');
+    q.endOnce.run(made.id);
+    let pastErr = null;
+    q.updateHeartbeat.run(once.name, once.prompt, null, null, null, null, null, null, 0, null, Date.now() - 1000, null, Date.now(), made.id, 'smoke-hb');
+    try { s.updateSchedule('smoke-hb', made.id, { enabled: true }); } catch (err) { pastErr = err; }
+    t(s.getSchedule('smoke-hb', made.id).enabled === 0 && pastErr?.status === 400, 'a one-off switches itself off, and can\'t be resumed once its time has passed');
     const daily = s.updateSchedule('smoke-hb', made.id, { at: '07:30', days: ['sat', 'sun'] });
     t(daily.cadence === 'Weekends at 07:30' && daily.everyMinutes === null, 'a schedule can change from an interval to a time of day');
 
@@ -1535,7 +1563,9 @@ async function heartbeatChecks() {
     t(['add_heartbeat', 'update_heartbeat', 'delete_heartbeat', 'list_heartbeats'].every((n) => inChat.has(n)), 'a profile with Core edit access can schedule from a chat');
     t(describeCall('smoke-hb', 'mcp__nova__add_heartbeat', { name: 'HA', every_minutes: 60 }) === 'Schedule "HA", every hour, behind the scenes' &&
       describeCall('smoke-hb', 'mcp__nova__update_heartbeat', { id: made.id, paused: true }) === 'Pause the schedule "Home check-in"' &&
-      describeCall('smoke-a', 'mcp__nova__delete_heartbeat', { id: made.id }) === 'Delete a schedule',
+      describeCall('smoke-a', 'mcp__nova__delete_heartbeat', { id: made.id }) === 'Delete a schedule' &&
+      describeCall('smoke-hb', 'mcp__nova__add_heartbeat', { name: 'Mail', every_minutes: 60, check_script: 'C:/s/mail.ps1' }).endsWith(', running C:/s/mail.ps1 first') &&
+      describeCall('smoke-hb', 'mcp__nova__add_heartbeat', { name: 'Backup', once_at: '2026-11-18 02:00', in_this_chat: true }) === 'Schedule "Backup", once, 2026-11-18 at 02:00, in this chat',
     'schedule prompts say what will run and when, and never name another profile\'s schedule');
     const viaTool = await call(inChat, 'add_heartbeat', { name: 'Via tool', prompt: 'p', every_minutes: 120 });
     t(!viaTool.error && JSON.parse(viaTool.text).when === 'Every 2 hours', 'add_heartbeat schedules work');

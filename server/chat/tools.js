@@ -180,20 +180,20 @@ function thoughtTools(profile, { chatId, run }) {
       'status open are still waiting for the user.',
     { since: z.string().optional().describe('Only entries from this date or time on, e.g. 2026-11-16 or an ISO time.'),
       schedule_id: z.string().optional().describe('Only entries from this Heartbeat schedule\'s runs (its id, from list_heartbeats).'),
-      open_only: z.boolean().optional().describe('Only questions and held-back actions still waiting for the user.'),
+      open_only: z.boolean().optional().describe('Only questions still waiting for the user.'),
       limit: z.number().int().min(1).max(50).optional().describe('How many, up to 50. Defaults to 20.') },
     g(({ since, schedule_id: scheduleId, open_only: openOnly, limit }) => {
       const list = thoughtsForNova(profile, { since, scheduleId, openOnly, limit });
       return list.length ? list : 'There is nothing in the Train of Thought for that yet.';
     }),
     { annotations: { readOnlyHint: true }, searchHint: 'train of thought timeline what did you do earlier questions heartbeat history' }),
-    tool('record_thought', 'Add an entry to the Train of Thought: one short line saying what was done and why. Use it when a task the ' +
-      'user confirms is done, after a commit, and at the end of every Heartbeat run. Add a question when there is something the user ' +
-      'should decide or might want (for example a pattern worth automating); it waits for them in the Thought pane. Everyone in this ' +
-      'Nova can read the timeline, so keep it generic: the kind of work, the area or project, and a one-line why. Never include chat ' +
-      'content, quotes, personal details, names of people, file contents, credentials or figures.',
-    { summary: z.string().describe('One line, up to 240 characters.'),
-      question: z.string().optional().describe('A short question for the user to pick up later, if there is one.'),
+    tool('record_thought', 'Add an entry to the Train of Thought: one short sentence giving the outcome (what was done or found, not ' +
+      'how). Use it when a task the user confirms is done, after a commit, and once at the end of every Heartbeat run. Add a question ' +
+      'only when you truly can\'t go on without the user\'s decision; never for suggestions, ideas or things they might like. It waits ' +
+      'for them in the Thought pane. Everyone in this Nova can read the timeline, so keep it generic: the kind of work, the area or ' +
+      'project. Never include chat content, quotes, personal details, names of people, file contents, credentials or figures.',
+    { summary: z.string().describe('One short sentence, up to 240 characters.'),
+      question: z.string().optional().describe('Only if you can\'t go on without the user: a short question for them to answer.'),
       kind: z.enum(['task', 'commit', 'other']).optional().describe('task: a finished task; commit: a commit; other (the default) for anything else.') },
     g(({ summary, question, kind }) => {
       if (run && run.recorded >= 5) throw new UserError('This run has already recorded five thoughts. Put the rest in one of them.');
@@ -218,15 +218,24 @@ function thoughtTools(profile, { chatId, run }) {
 
 const scheduleShape = (s) => ({ id: s.id, name: s.name, prompt: s.prompt, when: s.cadence, paused: !s.enabled,
   runsIn: s.targetChat ? `the chat "${s.targetChat.title}"` : 'behind the scenes', nextRun: s.nextRun ? new Date(s.nextRun).toISOString() : null,
-  lastRun: s.lastRun ? new Date(s.lastRun).toISOString() : null, lastStatus: s.lastStatus, createdBy: s.createdBy });
+  lastRun: s.lastRun ? new Date(s.lastRun).toISOString() : null, lastStatus: s.lastStatus, createdBy: s.createdBy,
+  ...(s.checkScript ? { checkScript: s.checkScript } : {}) });
+const checkScriptArg = () => z.string().optional().describe('The full path of a script that runs before each run, without a model: ' +
+  'if it prints nothing, the run is skipped and costs nothing; what it prints is given to the run. Use it to keep frequent checks ' +
+  'cheap, for example a PowerShell script that lists new mail through Outlook\'s COM objects, or the last hour\'s Home Assistant ' +
+  'events, filtered, printing nothing when there is nothing to look at. Write and test the script with the user first. ' +
+  '.ps1, .sh, .py, .js, .bat or .cmd. On update, "" removes it.');
 // Built when a chat starts, not at import: tools.js and heartbeat/schedules.js import each other.
 const cadenceArgs = () => ({
   every_minutes: z.number().int().optional().describe(`Repeat every this many minutes (at least ${Math.max(1, Number(config.heartbeat.minMinutes) || 5)}; 60 = hourly). Use this or at, not both.`),
   at: z.string().optional().describe('A time of day, HH:MM in the server\'s time zone, to run at instead.'),
-  days: z.array(z.enum(DAYS)).optional().describe('With at: the weekdays to run on. Leave out for every day.')
+  days: z.array(z.enum(DAYS)).optional().describe('With at: the weekdays to run on. Leave out for every day.'),
+  once_at: z.string().optional().describe('Run once only, at this date and time in the server\'s time zone, as YYYY-MM-DD HH:MM ' +
+    '(e.g. tonight at 2am to check on something). Use this instead of every_minutes or at.')
 });
-const cadenceOf = ({ every_minutes: e, at, days }) => ({
-  ...(e !== undefined ? { everyMinutes: e } : {}), ...(at !== undefined ? { at } : {}), ...(days !== undefined ? { days } : {})
+const cadenceOf = ({ every_minutes: e, at, days, once_at: once }) => ({
+  ...(e !== undefined ? { everyMinutes: e } : {}), ...(at !== undefined ? { at } : {}), ...(days !== undefined ? { days } : {}),
+  ...(once !== undefined ? { onceAt: once } : {})
 });
 
 function heartbeatTools(profile, { chatId, run }) {
@@ -238,21 +247,25 @@ function heartbeatTools(profile, { chatId, run }) {
   ];
   if (run || !can(profile, 'brain', 'edit')) return tools;
   tools.push(
-    tool('add_heartbeat', 'Schedule work Nova does by itself, without being asked: a prompt run every so many minutes, or at a time of day. ' +
-      'Each run is unattended and non-destructive (it can read, look things up and create, but anything that deletes, overwrites, edits ' +
-      'existing files or changes things is held back for review), and records what it found in the Train of Thought, with a question ' +
-      'for the user when something deserves one. By default it runs behind the scenes; in_this_chat sends the prompt to this chat ' +
-      'instead. Write the prompt so it stands on its own, since each run starts fresh. The user can pause or delete it in the Heartbeat pane.',
+    tool('add_heartbeat', 'Schedule work Nova does by itself, without being asked: a prompt run every so many minutes, at a time ' +
+      'of day, or once at a date and time (once_at), such as checking on something tonight. Each run is unattended and may use any ' +
+      'tool or command without asking, so write the prompt to say exactly what to do and what not to touch. Each run records its ' +
+      'outcome in the Train of Thought in one line. By default it runs behind the scenes; in_this_chat sends the prompt to this chat ' +
+      'instead, which is the way to come back to this conversation later. A check_script can run first, so a run only happens when ' +
+      'there is something to look at. Write the prompt so it stands on its own, since each run starts fresh. The user can pause or ' +
+      'delete it in the Heartbeat pane.',
     { name: z.string().describe('A short name, up to 80 characters.'), prompt: z.string().describe('What to do on each run, up to 4,000 characters.'),
-      ...cadenceArgs(), in_this_chat: z.boolean().optional().describe('Send each run\'s prompt to this chat rather than running behind the scenes.') },
-    g(({ name, prompt, in_this_chat: here, ...rest }) =>
-      scheduleShape(createSchedule(profile, { name, prompt, ...cadenceOf(rest), targetChatId: here ? chatId : null }, { by: 'nova', chatId }))),
+      ...cadenceArgs(), in_this_chat: z.boolean().optional().describe('Send each run\'s prompt to this chat rather than running behind the scenes.'),
+      check_script: checkScriptArg() },
+    g(({ name, prompt, in_this_chat: here, check_script: checkScript, ...rest }) =>
+      scheduleShape(createSchedule(profile, { name, prompt, checkScript, ...cadenceOf(rest), targetChatId: here ? chatId : null }, { by: 'nova', chatId }))),
     { searchHint: 'schedule recurring hourly daily check in heartbeat automate later' }),
-    tool('update_heartbeat', 'Change a Heartbeat schedule: its name, prompt, timing, or pause or resume it. Give at or every_minutes to change the timing.',
+    tool('update_heartbeat', 'Change a Heartbeat schedule: its name, prompt, timing, check script, or pause or resume it. Give at, every_minutes or once_at to change the timing.',
       { id: z.string().describe('The schedule\'s id, from list_heartbeats.'), name: z.string().optional(), prompt: z.string().optional(),
-        ...cadenceArgs(), paused: z.boolean().optional() },
-      g(({ id: sid, name, prompt, paused, ...rest }) => scheduleShape(updateSchedule(profile, sid, {
+        ...cadenceArgs(), paused: z.boolean().optional(), check_script: checkScriptArg() },
+      g(({ id: sid, name, prompt, paused, check_script: checkScript, ...rest }) => scheduleShape(updateSchedule(profile, sid, {
         ...(name !== undefined ? { name } : {}), ...(prompt !== undefined ? { prompt } : {}), ...cadenceOf(rest),
+        ...(checkScript !== undefined ? { checkScript } : {}),
         ...(paused !== undefined ? { enabled: !paused } : {})
       }))),
       { searchHint: 'pause resume change reschedule heartbeat schedule' }),
@@ -283,6 +296,8 @@ const taskName = (t) => (t ? `the task "${clip(t.title)}"` : 'a task');
 const noteName = (n) => (n ? `the ${n.shared ? 'shared ' : ''}sticky note "${clip(n.text.split('\n').find((l) => l.trim()) || 'empty')}"` : 'a sticky note');
 function ownSchedule(profile, id) { const r = id ? q.heartbeat.get(String(id)) : null; return r && r.profile === profile ? r : null; }
 const scheduleName = (s) => (s ? `the schedule "${clip(s.name)}"` : 'a schedule');
+// The check script is named in full (not clipped), since it runs as the user's own code.
+const checkNote = (file) => (typeof file !== 'string' ? '' : file.trim() ? `, running ${file.trim()} first` : ', without a check script');
 const where = (profile, day, parentId) => {
   if (parentId) return ` under ${taskName(ownTask(profile, parentId))}`;
   return day ? ` on ${day}` : ' to Unscheduled';
@@ -307,13 +322,17 @@ export function describeCall(profile, toolName, input = {}) {
     case 'mcp__nova__move_note': return `Move ${noteName(n())}`;
     case 'mcp__nova__delete_note': return `Delete ${noteName(n())}`;
     case 'mcp__nova__add_heartbeat': {
-      const when = input.every_minutes != null ? cadenceText({ every_min: Number(input.every_minutes) })
+      const once = input.once_at ? /^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d)$/.exec(String(input.once_at).trim()) : null;
+      const when = once ? `once, ${once[1]}-${once[2]}-${once[3]} at ${once[4]}:${once[5]}`
+        : input.every_minutes != null ? cadenceText({ every_min: Number(input.every_minutes) })
         : input.at ? cadenceText({ at_time: String(input.at), days: Array.isArray(input.days) ? input.days.map((d) => DAYS.indexOf(d)).filter((d) => d >= 0).join(',') : null }) : '';
-      return `Schedule "${clip(input.name)}"${when ? `, ${when.charAt(0).toLowerCase()}${when.slice(1)}` : ''}, ${input.in_this_chat ? 'in this chat' : 'behind the scenes'}`;
+      return `Schedule "${clip(input.name)}"${when ? `, ${when.charAt(0).toLowerCase()}${when.slice(1)}` : ''}, ${input.in_this_chat ? 'in this chat' : 'behind the scenes'}` +
+        checkNote(input.check_script);
     }
     case 'mcp__nova__update_heartbeat': {
       const s = ownSchedule(profile, input.id);
-      return input.paused === true ? `Pause ${scheduleName(s)}` : input.paused === false ? `Resume ${scheduleName(s)}` : `Change ${scheduleName(s)}`;
+      return (input.paused === true ? `Pause ${scheduleName(s)}` : input.paused === false ? `Resume ${scheduleName(s)}` : `Change ${scheduleName(s)}`) +
+        checkNote(input.check_script);
     }
     case 'mcp__nova__delete_heartbeat': return `Delete ${scheduleName(ownSchedule(profile, input.id))}`;
     default: return null;
