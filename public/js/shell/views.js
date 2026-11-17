@@ -14,11 +14,15 @@ import { setDraft } from '../chat/composer.js';
 // A new view adds its module here (and its entry in server/accounts/access.js VIEWS).
 const VIEW_MODULES = {
   brain: '../views/brain.js', tasks: '../views/tasks.js', notes: '../views/notes.js', apps: '../views/apps.js',
-  soul: '../views/soul.js', heartbeat: '../views/heartbeat.js', thought: '../views/thought.js', home: '../views/home.js'
+  soul: '../views/soul.js', heartbeat: '../views/heartbeat.js', thought: '../views/thought.js', home: '../views/home.js',
+  calendar: '../views/calendar.js'
 };
 // Home (views/home.js) isn't a tab and has no access level: every profile has it, and each of
 // its cards follows the view it draws on. The home button and the Nova logo open it.
 const HOME = 'home';
+// Pages that use Home's layout (the sidebar stretched over the page) and, like it, have no tab or
+// access level. The calendar (views/calendar.js) opens only from Home's Calendar card.
+const HOME_PAGES = new Set([HOME, 'calendar']);
 // Views that share a tab: the Core tab holds the brain and the Soul, Heartbeat and Thought,
 // switched at the top of the sidebar. They follow the tab's access level and aren't listed by
 // the server as views of their own. The tab reopens whichever member was used last.
@@ -46,7 +50,7 @@ function allowedViews() {
   const access = state.me?.access || {};
   return [{ id: 'chats', label: 'Chats' }, ...(state.me?.views || []).filter((v) => VIEW_MODULES[v.id] && access[v.id] && access[v.id] !== 'none')];
 }
-const canOpen = (id) => id === HOME || allowedViews().some((v) => v.id === tabOf(id));
+const canOpen = (id) => HOME_PAGES.has(id) || allowedViews().some((v) => v.id === tabOf(id));
 
 // What a tab does when clicked: a grouped tab reopens the member used last.
 const openTab = (id) => showView(GROUPS[id] && tabOf(view) !== id ? store.get(`view.${id}`, id) : id);
@@ -62,14 +66,14 @@ export function renderViewTabs() {
     type: 'button', role: 'tab', 'aria-selected': String(v.id === view), tabindex: v.id === view ? 0 : -1,
     'data-tab': v.id, 'data-label': v.label, onclick: () => openTab(v.id)
   }, svgIcon(VIEW_ICONS[v.id] || VIEW_ICONS.notes), h('span', {}, v.label), h('span', { class: 'tab-badge', hidden: true }))), moreTab);
-  if (view !== HOME && !tabList.some((v) => v.id === tabOf(view))) showView('chats', { force: true }); // access was taken away (Home has no tab)
+  if (!HOME_PAGES.has(view) && !tabList.some((v) => v.id === tabOf(view))) showView('chats', { force: true }); // access was taken away (Home has no tab)
   fitTabs();
   paintBadges();
 }
 
 // Shows as many tabs as fit at TAB_MIN, and the rest under More.
 function fitTabs() {
-  if (view === HOME && matchMedia('(min-width: 761px)').matches) {
+  if (HOME_PAGES.has(view) && matchMedia('(min-width: 761px)').matches) {
     for (const b of tabs.querySelectorAll('[data-tab]')) b.hidden = false;
     moreTab.hidden = true;
     return;
@@ -169,8 +173,8 @@ async function showView(id, { arg, force = false } = {}) {
   }
   const leaving = view;
   view = id;
-  document.body.classList.toggle('at-home', id === HOME); // the sidebar widens to hold Home (home.css)
-  if (id === HOME) els.sidebar.classList.remove('open');
+  document.body.classList.toggle('at-home', HOME_PAGES.has(id)); // the sidebar widens to hold Home (home.css)
+  if (HOME_PAGES.has(id)) els.sidebar.classList.remove('open');
   for (const el of document.querySelectorAll('[data-side], [data-view]')) {
     el.hidden = (el.dataset.side || el.dataset.view) !== id;
   }
@@ -183,7 +187,7 @@ async function showView(id, { arg, force = false } = {}) {
   if (leaving !== id) views.get(leaving)?.hide?.();
   views.get(id)?.show?.(arg);
   if (id === 'chats') { history.replaceState(null, '', location.pathname); idleSince = Date.now(); }
-  if (id !== HOME) store.set('view', id);
+  if (!HOME_PAGES.has(id)) store.set('view', id);
   if (GROUPS[tabOf(id)]) store.set(`view.${tabOf(id)}`, id);
 }
 

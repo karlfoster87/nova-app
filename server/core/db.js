@@ -1,6 +1,6 @@
 // SQLite index: profiles, sign-ins, chats and their categories, approvals and folders, tasks,
-// notes, attachments, profile pictures, push subscriptions, Heartbeat schedules and the shared
-// Train of Thought. Transcripts stay in Claude Code's own session files.
+// notes, attachments, profile pictures, push subscriptions, Heartbeat schedules, the shared
+// Train of Thought and linked calendar feeds. Transcripts stay in Claude Code's own session files.
 // Every statement lives in the q map below, grouped by area.
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
@@ -81,6 +81,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS thoughts_at ON thoughts(at DESC);
   CREATE INDEX IF NOT EXISTS thoughts_open ON thoughts(status, at DESC);
   CREATE INDEX IF NOT EXISTS thoughts_source ON thoughts(source_id, at DESC);
+  CREATE TABLE IF NOT EXISTS calendars (
+    id TEXT PRIMARY KEY, profile TEXT NOT NULL, name TEXT NOT NULL, url TEXT NOT NULL, color TEXT NOT NULL,
+    shown INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    fetched_at INTEGER, ok_at INTEGER, error TEXT, etag TEXT, modified TEXT, events INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS calendars_profile ON calendars(profile, position);
 `);
 
 // ---- Migrations ---------------------------------------------------------------
@@ -186,6 +192,18 @@ export const q = {
   setCategoryPosition: db.prepare('UPDATE categories SET position = ? WHERE id = ? AND profile = ?'),
   uncategorise: db.prepare('UPDATE chats SET category_id = NULL WHERE category_id = ? AND profile = ?'),
   deleteCategory: db.prepare('DELETE FROM categories WHERE id = ? AND profile = ?'),
+
+  // Linked calendar feeds (calendar/calendars.js): each profile's own. url can hold a secret token,
+  // so only the server reads it. The fetch columns say how the last refresh went.
+  calendars: db.prepare('SELECT * FROM calendars WHERE profile = ? ORDER BY position, created_at'),
+  calendar: db.prepare('SELECT * FROM calendars WHERE id = ? AND profile = ?'),
+  allCalendars: db.prepare('SELECT * FROM calendars'),
+  calendarIds: db.prepare('SELECT id FROM calendars'),
+  nextCalendarPosition: db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS n FROM calendars WHERE profile = ?'),
+  addCalendar: db.prepare('INSERT INTO calendars (id, profile, name, url, color, shown, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)'),
+  updateCalendar: db.prepare('UPDATE calendars SET name = ?, color = ?, shown = ?, url = ?, updated_at = ? WHERE id = ? AND profile = ?'),
+  setCalendarFetch: db.prepare('UPDATE calendars SET fetched_at = ?, ok_at = ?, error = ?, etag = ?, modified = ?, events = ? WHERE id = ? AND profile = ?'),
+  deleteCalendar: db.prepare('DELETE FROM calendars WHERE id = ? AND profile = ?'),
 
   // Remembered approvals and extra folders: per profile, across brains. rule '' = the whole tool.
   approvals: db.prepare('SELECT tool, rule, behavior, created_at FROM approvals WHERE profile = ? ORDER BY created_at DESC'),
@@ -310,7 +328,7 @@ export const q = {
 // Every table holding a profile's rows, so renaming or removing a profile covers them all in
 // one place. A new per-profile table goes in this list. Callers run these in a transaction.
 // The Train of Thought is shared and outlives a profile: a rename relabels its entries, a delete keeps them.
-const PROFILE_TABLES = ['logins', 'chats', 'categories', 'approvals', 'folders', 'tasks', 'notes', 'uploads', 'pictures', 'push_subs', 'heartbeats'];
+const PROFILE_TABLES = ['logins', 'chats', 'categories', 'approvals', 'folders', 'tasks', 'notes', 'uploads', 'pictures', 'push_subs', 'heartbeats', 'calendars'];
 const renames = PROFILE_TABLES.map((t) => db.prepare(`UPDATE ${t} SET profile = ? WHERE profile = ?`));
 const deletes = PROFILE_TABLES.map((t) => db.prepare(`DELETE FROM ${t} WHERE profile = ?`));
 const renameRow = db.prepare('UPDATE profiles SET name = ? WHERE name = ?');

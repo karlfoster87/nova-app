@@ -75,7 +75,9 @@ function transcriptFor(chatId, loading = false) {
 function onServer(m) {
   try { logEvent(m); } catch (err) { console.error('Log entry failed', err); } // the log must never break the chat
   try { pwa.onServer(m); } catch (err) { console.error('App notification failed', err); } // nor must notifications
-  try { views.get('home')?.watch?.(m); } catch (err) { console.error('Home refresh failed', err); } // Home reloads its cards on what could change them
+  for (const page of ['home', 'calendar']) { // Home and the calendar reload on what could change them
+    try { views.get(page)?.watch?.(m); } catch (err) { console.error(`The ${page} page failed to refresh`, err); }
+  }
   switch (m.t) {
     case 'meta': state.meta = m.meta; renderPickers(); renderUsage(); return;
     case 'created': {

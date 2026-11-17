@@ -6,7 +6,7 @@
 
 Self-hosted and private: it runs on your own Windows machine or in a Proxmox container, signs in with your own Claude plan, and keeps everything in a folder you own.
 
-Version 0.13.2 · Node 22.15+ · five dependencies · no build step
+Version 0.14.0 · Node 22.15+ · five dependencies · no build step
 
 ## Why Nova
 
@@ -18,7 +18,11 @@ Version 0.13.2 · Node 22.15+ · five dependencies · no build step
 
 ### Home: your day at a glance
 
-Nova opens on Home: the sidebar widens across the page, so your profile, home and settings buttons stay exactly where they always are, with the view tabs beside them and the cards below. It gathers what matters right now: chats waiting for your approval or answer, replies you haven't read, Nova's open questions; today's tasks, with the same square as the task board (click once to start one, again to finish it) and your active sticky notes; what Nova has been doing and what's next on its schedule; and your plan usage with reset times. Most things can be dealt with right there: start or finish a task, answer or dismiss a question, run a schedule now, or type into the Ask Nova box to start a chat. Get back to it with the home button beside your profile name or the Nova logo; a new chat left untouched for five minutes goes back to Home by itself. Each card shows only what the profile can use.
+Nova opens on Home: the sidebar widens across the page, so your profile, home and settings buttons stay exactly where they always are, with the view tabs beside them and the cards below. It gathers what matters right now: chats waiting for your approval or answer, replies you haven't read, Nova's open questions; today's tasks, with the same square as the task board (click once to start one, again to finish it) and your active sticky notes; what Nova has been doing and what's next on its schedule; your calendar's events today and in the coming week; and your plan usage with reset times. Most things can be dealt with right there: start or finish a task, answer or dismiss a question, run a schedule now, or type into the Ask Nova box to start a chat. Get back to it with the home button beside your profile name or the Nova logo; a new chat left untouched for five minutes goes back to Home by itself. Each card shows only what the profile can use.
+
+### Calendars
+
+Link your calendars by their ICS address under **Settings → Calendars**: Google, Outlook or Microsoft 365, iCloud, or anything else that publishes one (a `webcal://` link works too). Each profile links its own, as many as it likes, each with a name and a colour. Home's Calendar card shows today's events and the week ahead, and **Open calendar** there opens the full calendar: a month, a week or an agenda, with each calendar shown or hidden from its chip. Click any event for its details and **Discuss with Nova**, which starts a chat about it, ready to send. Nova can read your calendars in any chat too ("what's on this week?"), and so can Heartbeat runs, for a morning summary say. Nova fetches each calendar again every half hour, keeps the last good copy, and says when one couldn't be updated; providers may take a while to publish changes to their ICS feeds, Google especially. A private ICS address works like a password for the calendar, so Nova keeps it on the server and never shows it again in full. Feeds must use https, and only an admin's calendars may be on the local network.
 
 ### A chat built for an agent
 
@@ -140,7 +144,7 @@ To stop Nova, run the same script with `-Stop`; `-Uninstall` removes the autosta
 3. Put [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) in front of `http://127.0.0.1:8484`, with Cloudflare Access (a long session, around a month, suits the installed app).
 4. Open Nova, sign in, and connect Claude from **Settings → Claude**.
 
-For a tight setup, limit the container's outbound traffic to Anthropic and Claude, GitHub, npm, NodeSource, the Debian mirrors, Cloudflare, your file shares and, for push notifications, the browsers' push services (`*.notify.windows.com` for Edge, `*.push.apple.com` for iPhone and iPad, `fcm.googleapis.com` for Chrome, `*.push.services.mozilla.com` for Firefox). The `nova` command also does `logs`, `status`, `restart`, and `claude-login` for terminal sign-in.
+For a tight setup, limit the container's outbound traffic to Anthropic and Claude, GitHub, npm, NodeSource, the Debian mirrors, Cloudflare, your file shares, your calendar providers' feed hosts (such as `calendar.google.com`, `outlook.office365.com`, `*.icloud.com`) and, for push notifications, the browsers' push services (`*.notify.windows.com` for Edge, `*.push.apple.com` for iPhone and iPad, `fcm.googleapis.com` for Chrome, `*.push.services.mozilla.com` for Firefox). The `nova` command also does `logs`, `status`, `restart`, and `claude-login` for terminal sign-in.
 
 ## Updates
 
@@ -149,7 +153,7 @@ For a tight setup, limit the container's outbound traffic to Anthropic and Claud
 ## Good to know
 
 - **Your data** lives in `data/` (or `/opt/nova/data`): `config.json`, the database, Nova's own Claude sign-in and chat transcripts, attachments and logs. Keep it private, backups included.
-- **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `chats.coldResume` (`fresh`, `ask` or `full`), `chats.handoffMinutes` (50), `chats.handoffMinTokens` (30000), `chats.handoffAtUsage` (85%), `chats.autoCompactPercent` (60), `chats.maxToolResultChars` (20000), `updates.checkHours` (24, or 0 to stop checking), `paths.appsDir` (`data/apps`), for app backends `apps.timeoutSec` (15) and `apps.memoryMB` (256), and for Heartbeat `heartbeat.enabled` (true), `heartbeat.maxConcurrent` (2 runs at once), `heartbeat.minMinutes` (5), `heartbeat.maxRunMinutes` (15), `heartbeat.pauseAtUsage` (90%), `heartbeat.keepRunsDays` (30) and `thought.keepDays` (180).
+- **Settings you may want** in `config.json`: `server.port` (8484), `server.mode` (`remote` behind a tunnel), `paths.brainDir`, `chats.idleMinutes` (30), `chats.coldResume` (`fresh`, `ask` or `full`), `chats.handoffMinutes` (50), `chats.handoffMinTokens` (30000), `chats.handoffAtUsage` (85%), `chats.autoCompactPercent` (60), `chats.maxToolResultChars` (20000), `updates.checkHours` (24, or 0 to stop checking), `paths.appsDir` (`data/apps`), for app backends `apps.timeoutSec` (15) and `apps.memoryMB` (256), and for Heartbeat `heartbeat.enabled` (true), `heartbeat.maxConcurrent` (2 runs at once), `heartbeat.minMinutes` (5), `heartbeat.maxRunMinutes` (15), `heartbeat.pauseAtUsage` (90%), `heartbeat.keepRunsDays` (30) `thought.keepDays` (180), and for calendars `calendar.refreshMinutes` (30), `calendar.maxPerProfile` (20) and `calendar.timeZone` (the machine's own, for Nova's calendar tool).
 - **Security:** every request is checked against the signed-in profile, passwords and PINs are hashed with scrypt, sessions are HttpOnly and SameSite=Strict, a strict Content Security Policy is in place, and chat output is sanitised before it's shown. Nova's chats act as the user running Nova, so in a container, the container is the boundary.
 
 ## Under the hood
@@ -157,7 +161,7 @@ For a tight setup, limit the container's outbound traffic to Anthropic and Claud
 Node.js with native ES modules in the browser: no framework, no bundler, and only five dependencies (the Agent SDK, `ws`, `marked`, `dompurify`, and `zod` for the schemas of Nova's own task and note tools, which the SDK already needs). Data is in SQLite through `node:sqlite`.
 
 ```
-server/    the Node server: routes/, ws.js, and a folder per area (chat, brain, apps, accounts, claude, views, updates, voice)
+server/    the Node server: routes/, ws.js, and a folder per area (chat, brain, apps, accounts, claude, views, updates, voice, calendar)
 public/    the browser app: js/ (a folder per area) and css/ (one stylesheet per area)
 scripts/   install scripts, profile and sign-in tools, checks and smoke tests
 ```

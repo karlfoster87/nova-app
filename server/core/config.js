@@ -110,6 +110,14 @@ const defaults = {
     effort: 'medium',     // effort for runs whose schedule doesn't choose one
     keepRunsDays: 30      // behind-the-scenes run transcripts older than this are deleted
   },
+  calendar: {
+    // Calendar feeds (ICS addresses) each profile links in Settings → Calendars (calendar/).
+    refreshMinutes: 30,   // how often each feed is fetched again
+    maxMB: 10,            // the largest feed Nova reads
+    timeoutSec: 20,       // a feed that takes longer to answer counts as failed this time
+    maxPerProfile: 20,    // calendars one profile may link
+    timeZone: null        // IANA zone for Nova's calendar tool and for feeds' floating times; null = this machine's
+  },
   thought: {
     keepDays: 180         // Train of Thought entries older than this are deleted, except questions still open
   },

@@ -4,5 +4,5 @@
 import { homeSummary } from '../home/home.js';
 
 export default function homeRoutes(api) {
-  api.get('/api/home', ({ url, profile }) => homeSummary(profile, url.searchParams.get('today')));
+  api.get('/api/home', ({ url, profile }) => homeSummary(profile, url.searchParams.get('today'), url.searchParams.get('tz')));
 }

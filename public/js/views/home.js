@@ -6,8 +6,9 @@
 //
 // Everything comes from one call, /api/home (server/home/home.js), which leaves out cards the
 // profile can't use; quick actions use the views' own routes. Home hears every server message
-// (watch) and reloads, debounced, when one could change a card. Email and Calendar are reserved
-// slots in CARDS, drawn only once the server switches them on.
+// (watch) and reloads, debounced, when one could change a card. Email is a reserved slot in CARDS,
+// drawn only once the server switches it on. The Calendar card (v0.14) is the only way into the
+// full calendar page (views/calendar.js).
 import { h, svgIcon } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { localDay } from '../lib/format.js';
@@ -15,6 +16,7 @@ import { state } from '../state.js';
 import { goTo, goToChat, startChat, askNova } from '../shell/views.js';
 import { WINDOWS, resetText } from '../shell/header.js';
 import { openSettings } from '../settings/dialog.js';
+import { browserZone, dayName, timeOnDay, dot, openEvent } from '../calendar/shared.js';
 
 const ICONS = {
   waiting: ['M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18Z', 'M12 7v5l3 2'],
@@ -31,7 +33,7 @@ const ORDER = ['waiting', 'email', 'calendar', 'today', 'activity', 'status'];
 const TITLES = { waiting: 'Waiting on you', email: 'Email', calendar: 'Calendar', today: 'Today', activity: 'Nova\'s activity', status: 'Plan & status' };
 // Server messages after which a card may read differently.
 const WATCH = new Set(['permission', 'permission_resolved', 'permission_cancelled', 'state', 'chats_changed', 'tasks_changed',
-  'notes_changed', 'thought_changed', 'heartbeat_changed', 'profile_changed']);
+  'notes_changed', 'thought_changed', 'heartbeat_changed', 'profile_changed', 'calendars_changed']);
 
 const clock = (ms) => new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 function when(ms) {
@@ -90,7 +92,7 @@ export function init(ctx) {
     if (loading) return loading;
     loading = (async () => {
       try {
-        data = await api('GET', `/api/home?today=${localDay()}`);
+        data = await api('GET', `/api/home?today=${localDay()}&tz=${encodeURIComponent(browserZone())}`);
         render();
         setStatus('');
       } catch (err) { setStatus(err.message, true); } finally { loading = null; }
@@ -169,9 +171,35 @@ export function init(ctx) {
       return { extra: count(items.length), kids: [items.length ? h('ul', { class: 'home-list' }, ...items) : empty('Nothing needs you.')] };
     },
 
-    // Reserved until the Outlook and calendar features ship; the server switches them on.
+    // Reserved until the Outlook feature ships; the server switches it on.
     email() { return data.cards?.email ? { kids: [empty('Email isn\'t set up yet.')] } : null; },
-    calendar() { return data.cards?.calendar ? { kids: [empty('No calendars are linked yet.')] } : null; },
+
+    // Today's events, then the coming week's, from the calendars this profile shows. An event opens
+    // its details (with Discuss with Nova); Open calendar is the only way to the full page.
+    calendar() {
+      const c = data.cards?.calendar && data.calendar;
+      if (!c) return null;
+      if (!c.linked) {
+        return { kids: [empty('No calendars are linked yet. Add one by its ICS address to see your day here.'),
+          h('div', { class: 'home-actions' }, h('button', { type: 'button', class: 'text-btn', onclick: () => openSettings('calendars') }, 'Add a calendar'))] };
+      }
+      const cal = (id) => c.calendars.find((x) => x.id === id);
+      const day = localDay();
+      const line = (e, on, label) => row([h('button', { type: 'button', class: 'home-item home-event', onclick: () => openEvent(e, cal(e.calendarId)) },
+        h('strong', {}, dot(cal(e.calendarId)), h('span', {}, e.title)), h('span', { class: 'muted' }, label || timeOnDay(e, on)))], 'event');
+      const kids = [c.today.length ? h('ul', { class: 'home-list' }, ...c.today.map((e) => line(e, day)))
+        : empty(c.calendars.some((x) => x.shown) ? 'Nothing on today.' : 'Every calendar is hidden. Show one on the calendar page.')];
+      if (c.upcoming.length) {
+        kids.push(h('h3', { class: 'home-h3' }, 'Coming up'), h('ul', { class: 'home-list' }, ...c.upcoming.map((e) => {
+          const on = e.allDay ? e.start : localDay(new Date(e.start));
+          return line(e, on, `${dayName(on, { weekday: 'short', day: 'numeric', month: 'short' })} · ${timeOnDay(e, on)}`);
+        })));
+      }
+      const stale = c.calendars.filter((x) => x.error);
+      if (stale.length) kids.push(h('p', { class: 'home-warn home-small' }, `Couldn't update ${stale.map((x) => x.name).join(', ')}, so it may be out of date.`));
+      kids.push(h('div', { class: 'home-actions' }, link('Open calendar', () => goTo({ id: 'calendar' }))));
+      return { kids };
+    },
 
     today() {
       const t = data.today, notes = data.notes;

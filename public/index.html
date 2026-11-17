@@ -215,6 +215,7 @@
     <div class="tabs" role="tablist" aria-label="Settings sections">
       <button type="button" role="tab" data-tab="profile" aria-selected="true">Your profile</button>
       <button type="button" role="tab" data-tab="permissions">Permissions</button>
+      <button type="button" role="tab" data-tab="calendars">Calendars</button>
       <button type="button" role="tab" data-tab="profiles" data-admin>Profiles</button>
       <button type="button" role="tab" data-tab="claude" data-admin>Claude</button>
       <button type="button" role="tab" data-tab="updates" data-admin>Updates</button>
@@ -316,6 +317,34 @@
         <div id="approvalRows" class="profile-rows"></div>
         <p class="form-status" role="status"></p>
       </div>
+    </section>
+
+    <section class="panel" data-panel="calendars" role="tabpanel" hidden>
+      <div class="stack" id="calendarBox">
+        <h3>Linked calendars</h3>
+        <p class="muted">Calendars you subscribe to by their ICS address. Home shows today and the coming week, the calendar page opens from there, and Nova can read them in your chats. They're your profile's only. Nova fetches each one again every so often (half-hourly by default), or straight away with Update.</p>
+        <div id="calendarRows" class="profile-rows"></div>
+        <p class="form-status" role="status"></p>
+      </div>
+      <form id="calendarForm" class="stack add-profile">
+        <h3>Add a calendar</h3>
+        <label>ICS address <input name="url" type="text" inputmode="url" autocomplete="off" spellcheck="false" required placeholder="https://… .ics"></label>
+        <div class="grid-2">
+          <label>Name <span class="muted">(optional)</span> <input name="name" type="text" maxlength="80" autocomplete="off" placeholder="From the calendar"></label>
+          <label>Colour <select name="color" id="calendarColor"></select></label>
+        </div>
+        <details class="cal-help">
+          <summary>Where to find the address</summary>
+          <ul>
+            <li><strong>Google Calendar:</strong> Settings, choose the calendar, then Integrate calendar → Secret address in iCal format.</li>
+            <li><strong>Outlook or Microsoft 365:</strong> Settings → Calendar → Shared calendars → Publish a calendar, then copy the ICS link.</li>
+            <li><strong>iCloud:</strong> share the calendar as a Public Calendar and copy its link (webcal:// works).</li>
+          </ul>
+          <p class="muted">A private address works like a password for the calendar: Nova keeps it on the server and never shows it again in full. If it leaks, reset it at the calendar provider and add the new one here.</p>
+        </details>
+        <div class="row"><button type="submit" class="send-btn">Add calendar</button></div>
+        <p class="form-status" role="status"></p>
+      </form>
     </section>
 
     <section class="panel" data-panel="profiles" role="tabpanel" hidden>

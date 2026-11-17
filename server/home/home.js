@@ -5,8 +5,9 @@
 //
 // Cards: waiting (chats with an approval or question open, from this profile's own live runners,
 // and what waits in the Train of Thought), today (tasks and active sticky notes),
-// activity (recent thoughts, the next Heartbeat runs) and status (what's running). Email and Calendar are reserved: listed in CARDS
-// as off, so the layout and this summary already have their places when those features ship.
+// activity (recent thoughts, the next Heartbeat runs), status (what's running) and, since v0.14, calendar
+// (today's and the coming week's events from the profile's linked feeds). Email is reserved: listed in
+// CARDS as off, so the layout and this summary already have its place when that feature ships.
 import { can } from '../accounts/access.js';
 import { q } from '../core/db.js';
 import { runnersOf } from '../chat/runner.js';
@@ -15,9 +16,10 @@ import { listTasks } from '../views/tasks.js';
 import { listNotes } from '../views/notes.js';
 import { listThoughts } from '../thought/thoughts.js';
 import { listSchedules } from '../heartbeat/schedules.js';
+import { calendarSummary } from '../calendar/calendars.js';
 
-// Reserved cards: switched on here when the feature behind each one is built.
-export const CARDS = { email: false, calendar: false };
+// Cards that depend on a feature: switched on here when the feature behind each one is built.
+export const CARDS = { email: false, calendar: true };
 
 const title = (profile, id) => ownedChat(profile, id)?.title || 'New chat';
 
@@ -69,8 +71,10 @@ function thoughtCards(profile) {
   };
 }
 
-export function homeSummary(profile, day) {
+// day and tz: the browser's date and time zone, so "today" is the user's.
+export function homeSummary(profile, day, tz) {
   const out = { cards: { ...CARDS }, ...chatsNow(profile) };
+  if (CARDS.calendar) out.calendar = calendarSummary(profile, day, tz); // every profile's own calendars, no view access needed
   if (can(profile, 'tasks', 'read') && /^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))) out.today = today(profile, day); // the browser's date
   if (can(profile, 'notes', 'read')) out.notes = activeNotes(profile);
   if (can(profile, 'brain', 'read')) {
